@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <fstream>
+#include <string>
 
 #include "Lorenz_8D_SystemDefinition.cuh"
 #include "SingleSystem_PerThread_Interface.cuh"
@@ -27,6 +28,8 @@ const int NDO  = 0;     // NumberOfPointsOfDenseOutput
 void Linspace(vector<PRECISION>&, PRECISION, PRECISION, int);
 void FillSolverObject(ProblemSolver<NT,SD,NCP,NSP,NISP,NE,NA,NIA,NDO,SOLVER,PRECISION>&, const vector<PRECISION>&, int);
 void SaveData(ProblemSolver<NT,SD,NCP,NSP,NISP,NE,NA,NIA,NDO,SOLVER,PRECISION>&, int);
+int RunWithOutput(bool out);
+
 
 int main()
 {
@@ -89,6 +92,70 @@ int main()
 	cout << "Test finished!" << endl;
 }
 
+int RunWithOutput(bool out)
+{
+	int NumberOfProblems = NT;
+	int BlockSize        = 64;
+
+	ListCUDADevices();
+
+	int MajorRevision  = 7;
+	int MinorRevision  = 5;
+	int SelectedDevice = SelectDeviceByClosestRevision(MajorRevision, MinorRevision);
+
+	PrintPropertiesOfSpecificDevice(SelectedDevice);
+
+
+	int NumberOfParameters_R = NumberOfProblems;
+	PRECISION R_RangeLower = 0.0;
+    PRECISION R_RangeUpper = 21.0;
+		vector<PRECISION> Parameters_R_Values(NumberOfParameters_R,0);
+		Linspace(Parameters_R_Values, R_RangeLower, R_RangeUpper, NumberOfParameters_R);
+
+
+	ProblemSolver<NT,SD,NCP,NSP,NISP,NE,NA,NIA,NDO,SOLVER,PRECISION> ScanLorenz(SelectedDevice);
+
+	ScanLorenz.SolverOption(ThreadsPerBlock, BlockSize);
+	ScanLorenz.SolverOption(InitialTimeStep, 1.0e-6);
+
+  // ScanLorenz.SolverOption(MaximumTimeStep, 1.0e3);
+	ScanLorenz.SolverOption(MinimumTimeStep, 1.0e-12);
+	// ScanLorenz.SolverOption(TimeStepGrowLimit, 10.0);
+	// ScanLorenz.SolverOption(TimeStepShrinkLimit, 0.2);
+
+  // for (int i=0; i<SD; i++){
+	// ScanLorenz.SolverOption(RelativeTolerance, i, 1.0e-9);
+	// ScanLorenz.SolverOption(AbsoluteTolerance, i, 1.0e-9);
+  // }
+
+	clock_t SimulationStart;
+	clock_t SimulationEnd;
+
+	FillSolverObject(ScanLorenz, Parameters_R_Values, NT);
+
+	SimulationStart = clock();
+
+	ScanLorenz.SynchroniseFromHostToDevice(All);
+
+	ScanLorenz.Solve();
+
+	ScanLorenz.SynchroniseFromDeviceToHost(All);
+	ScanLorenz.InsertSynchronisationPoint();
+	ScanLorenz.SynchroniseSolver();
+
+	SimulationEnd = clock();
+		cout << "Total simulation time:           " << 1000.0*(SimulationEnd-SimulationStart) / CLOCKS_PER_SEC << "ms" << endl;
+		cout << "Simulation time / 1000 RKCK45 step: " << 1000.0*(SimulationEnd-SimulationStart) / CLOCKS_PER_SEC / 10 << "ms" << endl;
+		cout << "Ensemble size:                   " << NT << endl << endl;
+
+	// SaveData(ScanLorenz, NT);
+
+	cout << "Test finished!" << endl;
+	if (out){
+		return 0;
+	}
+	return 1;
+}
 // AUXILIARY FUNCTION -----------------------------------------------------------------------------
 
 void Linspace(vector<PRECISION>& x, PRECISION B, PRECISION E, int N)

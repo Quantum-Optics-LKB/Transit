@@ -12,6 +12,7 @@ import sys
 import scipy.constants as cst
 from multiprocessing import Pool
 from bresenham import bresenham
+import ctypes
 
 T = 150+273  # cell temp
 puiss = 1  # power in W
@@ -27,6 +28,7 @@ pv = ((2/np.pi)**1/2)*((solver.m87/(cst.Boltzmann*solver.T))**(3/2))*vs**2*np.ex
 N = 128
 N_real = 400
 
+c_lib = ctypes.CDLL("/home/tangui/Documents/LKB/Transit/Lorenz_8D.so")
 
 def choose_points():
     edges = []
@@ -41,7 +43,8 @@ def choose_points():
         ifinal, jfinal = edges[np.random.randint(0, len(edges)-1)]
     return iinit, jinit, ifinal, jfinal
 
-
+output = c_lib.RunWithOutput(True)
+print(f'{output=}')
 # iinit, jinit, ifinal, jfinal = choose_points()
 # xinit = jinit*2*solver.waist/N
 # yinit = iinit*2*solver.waist/N
