@@ -4,9 +4,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.constants import epsilon_0, hbar, c, mu_0, Boltzmann,  m_n,  e
 from odeintw import odeintw
-from scipy.signal import savgol_filter
-from numba import jit
+from scipy.integrate import solve_ivp
+from numba import jit, cfunc, types
 import sys
+from NumbaLSODA import lsoda_sig, lsoda
 
 
 def N(T):
@@ -59,8 +60,10 @@ class temporal_bloch:
         self.Omega23 = self.E*self.mu23/hbar
         self.Omega13 = self.E*self.mu13/hbar
 
-        self.x0 = np.array([self.G1 + 1j*0, self.G2 + 1j*0, 0, 0, 0, 0, 0, 0])
-        self.x0_short = np.array([self.G1 + 1j*0, self.G2 + 1j*0, 0, 0])
+        self.x0 = np.array([self.G1 + 1j*0, self.G2 + 1j*0, 0, 0, 0, 0, 0, 0],
+                           dtype=np.complex128)
+        self.x0_short = np.array([self.G1 + 1j*0, self.G2 + 1j*0, 0, 0],
+                                 dtype=np.complex128)
 
         print(f"Omega23 = {np.real(self.Omega23)*1e-9/(2*np.pi)} GHz")
 
@@ -93,36 +96,38 @@ class temporal_bloch:
 
         return np.matmul(A, x) + b*np.heaviside(t, 1)
 
-    def deriv_notransit(self, x, t, v):
-        """Computes the differential term of MBE in the case of a 3 level system
-        with one coupling field. The x vector represents the density matrix
-        elements rho_11, 22, 21, 12, 31, 13, 32, 23
-
-        :param np.ndarray x: Density matrix coefficients vector
-        :param float t: Time
-        :param float v: Atom initial velocity
-        :return: The updated density matrix elements
-        :rtype: np.ndarray
-
-        """
-
-        Gamma = self.Gamma
-        gamma21tilde = self.gamma21tilde
-        gamma31tilde = self.gamma31tilde + self.k*v
-        gamma32tilde = self.gamma32tilde + self.k*v
-        Omega13 = self.Omega13*np.exp(-(v*t-self.r0)**2/(2*self.waist))
-        Omega23 = self.Omega23*np.exp(-(v*t-self.r0)**2/(2*self.waist))
-        A = np.array([[-Gamma/2, -Gamma/2, 0, 0, 1j*np.conj(Omega13)/2, -1j*Omega13/2, 0, 0],
-             [-Gamma/2, -Gamma/2, 0, 0, 0, 0, 1j*np.conj(Omega23)/2, -1j*Omega23/2],
-             [0, 0, -gamma21tilde, 0, 1j*np.conj(Omega23)/2, 0, 0, -1j*Omega13/2],
-             [0, 0, 0, -np.conj(gamma21tilde), 0, -1j*Omega23/2, 1j*np.conj(Omega13)/2, 0],
-             [1j*Omega13, 1j*Omega13/2, 1j*Omega23/2, 0, -gamma31tilde, 0, 0, 0],
-             [-1j*np.conj(Omega13), -1j*np.conj(Omega13)/2, 0, -1j*np.conj(Omega23)/2, 0, -np.conj(gamma31tilde), 0, 0],
-             [1j*Omega23/2, 1j*Omega23, 0, 1j*Omega13/2, 0, 0, -gamma32tilde, 0],
-             [-1j*np.conj(Omega23)/2, -1j*np.conj(Omega23), -1j*np.conj(Omega13)/2, 0, 0, 0, 0, -np.conj(gamma32tilde)]])
-
-        b = np.array([Gamma/2, Gamma/2, 0, 0, -1j*Omega13/2, 1j*np.conj(Omega13)/2, -1j*Omega23/2, 1j*np.conj(Omega23)/2])
-        return np.matmul(A, x) + b*np.heaviside(t, 1)
+    # def deriv_notransit(self, x, t, v, u0, u1, xinit, yinit):
+    #     """Computes the differential term of MBE in the case of a 3 level system
+    #     with one coupling field. The x vector represents the density matrix
+    #     elements rho_11, 22, 21, 12, 31, 13, 32, 23
+    #
+    #     :param np.ndarray x: Density matrix coefficients vector
+    #     :param float t: Time
+    #     :param float v: Atom initial velocity
+    #     :return: The updated density matrix elements
+    #     :rtype: np.ndarray
+    #
+    #     """
+    #
+    #     Gamma = self.Gamma
+    #     gamma21tilde = self.gamma21tilde
+    #     gamma31tilde = self.gamma31tilde + self.k*v
+    #     gamma32tilde = self.gamma32tilde + self.k*v
+    #     # velocity unit vector
+    #     r = np.hypot(xinit+u0*v*t - self.r0, yinit+u1*v*t - self.r0)
+    #     Omega13 = self.Omega13*np.exp(-r**2/(2*self.waist))
+    #     Omega23 = self.Omega23*np.exp(-r**2/(2*self.waist))
+    #     A = np.array([[-Gamma/2, -Gamma/2, 0, 0, 1j*np.conj(Omega13)/2, -1j*Omega13/2, 0, 0],
+    #          [-Gamma/2, -Gamma/2, 0, 0, 0, 0, 1j*np.conj(Omega23)/2, -1j*Omega23/2],
+    #          [0, 0, -gamma21tilde, 0, 1j*np.conj(Omega23)/2, 0, 0, -1j*Omega13/2],
+    #          [0, 0, 0, -np.conj(gamma21tilde), 0, -1j*Omega23/2, 1j*np.conj(Omega13)/2, 0],
+    #          [1j*Omega13, 1j*Omega13/2, 1j*Omega23/2, 0, -gamma31tilde, 0, 0, 0],
+    #          [-1j*np.conj(Omega13), -1j*np.conj(Omega13)/2, 0, -1j*np.conj(Omega23)/2, 0, -np.conj(gamma31tilde), 0, 0],
+    #          [1j*Omega23/2, 1j*Omega23, 0, 1j*Omega13/2, 0, 0, -gamma32tilde, 0],
+    #          [-1j*np.conj(Omega23)/2, -1j*np.conj(Omega23), -1j*np.conj(Omega13)/2, 0, 0, 0, 0, -np.conj(gamma32tilde)]])
+    #
+    #     b = np.array([Gamma/2, Gamma/2, 0, 0, -1j*Omega13/2, 1j*np.conj(Omega13)/2, -1j*Omega23/2, 1j*np.conj(Omega23)/2])
+    #     return np.matmul(A, x) + b*np.heaviside(t, 1)
 
     def deriv_short_notransit(self, x, t, v):
         Gamma = self.Gamma
@@ -164,10 +169,8 @@ class temporal_bloch:
 
         return t, y
 
-    def integrate_notransit(self, v, ts, xinit, yinit, xfinal, yfinal):
-        # y, infodict = odeintw(self.deriv_notransit, self.x0, ts, args=(v,),
-        #             full_output=True, hmax=1e-6, hmin=1e-14, h0=1e-14)
-        # return ts, y, infodict
+    def integrate_notransit(self, v, ts, xinit, yinit, xfinal, yfinal, ynext):
+
         Gamma = self.Gamma
         gamma21tilde = self.gamma21tilde
         gamma31tilde = self.gamma31tilde + self.k*v
@@ -183,15 +186,22 @@ class temporal_bloch:
         u0 /= norm
         u1 /= norm
 
-        @jit(nopython=True)
-        def deriv_notransit(self, x, t, v):
+        @jit(nopython=True, nogil=True, fastmath=True)
+        def deriv_notransit(t, x, v, u0, u1, xinit, yinit, dy):
             """Computes the differential term of MBE in the case of a 3 level system
             with one coupling field. The x vector represents the density matrix
-            elements rho_11, 22, 21, 12, 31, 13, 32, 23
+            elements rho_11, 22, 21, 12, 31, 13, 32, 23. This function is
+            optimized for speed through compilation, pre-allocation and the use
+            of fast maths.
 
             :param np.ndarray x: Density matrix coefficients vector
             :param float t: Time
             :param float v: Atom initial velocity
+            :param float u0: unit vector for velocity along x
+            :param float u1: unit vector for velocity along y
+            :param float xinit: initial position x
+            :param float yinit: initial position y
+            :param np.ndarray dy: vector to store next iteration
             :return: The updated density matrix elements
             :rtype: np.ndarray
 
@@ -199,20 +209,74 @@ class temporal_bloch:
             r = np.hypot(xinit+u0*v*t - r0, yinit+u1*v*t - r0)
             Om23 = Omega23 * np.exp(-r**2/(2*waist**2))
             Om13 = Omega13 * np.exp(-r**2/(2*waist**2))
-            A = np.array([[-Gamma/2, -Gamma/2, 0, 0, 1j*np.conj(Om13)/2, -1j*Om13/2, 0, 0],
-                 [-Gamma/2, -Gamma/2, 0, 0, 0, 0, 1j*np.conj(Om23)/2, -1j*Om23/2],
-                 [0, 0, -gamma21tilde, 0, 1j*np.conj(Om23)/2, 0, 0, -1j*Om13/2],
-                 [0, 0, 0, -np.conj(gamma21tilde), 0, -1j*Om23/2, 1j*np.conj(Om13)/2, 0],
-                 [1j*Om13, 1j*Om13/2, 1j*Om23/2, 0, -gamma31tilde, 0, 0, 0],
-                 [-1j*np.conj(Om13), -1j*np.conj(Om13)/2, 0, -1j*np.conj(Om23)/2, 0, -np.conj(gamma31tilde), 0, 0],
-                 [1j*Om23/2, 1j*Om23, 0, 1j*Om13/2, 0, 0, -gamma32tilde, 0],
-                 [-1j*np.conj(Om23)/2, -1j*np.conj(Om23), -1j*np.conj(Om13)/2, 0, 0, 0, 0, -np.conj(gamma32tilde)]])
+            b = np.array([Gamma/2, Gamma/2, 0, 0, -1j*Om13/2,
+                          1j*np.conj(Om13)/2, -1j*Om23/2, 1j*np.conj(Om23)/2],
+                         dtype=np.complex128)
+            dy[0] = (-Gamma/2)*x[0]-(Gamma/2)*x[1]+(1j*np.conj(Om13)/2)*x[4]-(1j*Om13/2)*x[5]
+            dy[1] = (-Gamma/2)*x[0]-(Gamma/2)*x[1]+(1j*np.conj(Om23)/2)*x[6]-(1j*Om23/2)*x[7]
+            dy[2] = -gamma21tilde*x[2]+(1j*np.conj(Om23)/2)*x[4]-(1j*Om13/2)*x[7]
+            dy[3] = -np.conj(gamma21tilde)*x[3] - (1j*Om23/2)*x[5] + (1j*np.conj(Om13)/2)*x[6]
+            dy[4] = 1j*Om13*x[0] + (1j*Om13/2)*x[1] + (1j*Om23/2)*x[2] - gamma31tilde*x[4]
+            dy[5] = -1j*np.conj(Om13)*x[0]-1j*(np.conj(Om13)/2)*x[1]-(1j*np.conj(Om23)/2)*x[3]-np.conj(gamma31tilde)*x[5]
+            dy[6] = (1j*Om23/2)*x[0]+1j*Om23*x[1]+(1j*Om13/2)*x[3]-gamma32tilde*x[6]
+            dy[7] = (-1j*np.conj(Om23)/2)*x[0]-1j*np.conj(Om23)*x[1]-(1j*np.conj(Om13)/2)*x[2]-np.conj(gamma32tilde)*x[7]
+            dy += b
+            return dy
 
-            b = np.array([Gamma/2, Gamma/2, 0, 0, -1j*Om13/2, 1j*np.conj(Om13)/2, -1j*Om23/2, 1j*np.conj(Om23)/2])
-            return np.matmul(A, x) + b*np.heaviside(t, 1)
-        y = odeintw(self.deriv_notransit, self.x0, ts, args=(v,),
-                    full_output=False, hmax=1e-4, hmin=2e-14, h0=2e-14)
-        return ts, y
+        # c_sig = types.NestedArray(dtype=types.complex128, shape=self.x0.shape)(
+        #             types.float64, types.NestedArray(dtype=types.complex128, shape=self.x0.shape),
+        #             types.float64, types.float64, types.float64,
+        #             types.float64, types.float64,
+        #             types.NestedArray(dtype=types.complex128, shape=self.x0.shape)
+        #             )
+        #
+        # @cfunc(c_sig)
+        # def deriv_notransit_c(t, x, v, u0, u1, xinit, yinit, dy):
+        #     """Computes the differential term of MBE in the case of a 3 level system
+        #     with one coupling field. The x vector represents the density matrix
+        #     elements rho_11, 22, 21, 12, 31, 13, 32, 23. This function is
+        #     optimized for speed through compilation, pre-allocation and the use
+        #     of fast maths.
+        #
+        #     :param np.ndarray x: Density matrix coefficients vector
+        #     :param float t: Time
+        #     :param float v: Atom initial velocity
+        #     :param float u0: unit vector for velocity along x
+        #     :param float u1: unit vector for velocity along y
+        #     :param float xinit: initial position x
+        #     :param float yinit: initial position y
+        #     :param np.ndarray dy: vector to store next iteration
+        #     :return: The updated density matrix elements
+        #     :rtype: np.ndarray
+        #
+        #     """
+        #     r = np.hypot(xinit+u0*v*t - r0, yinit+u1*v*t - r0)
+        #     Om23 = Omega23 * np.exp(-r**2/(2*waist**2))
+        #     Om13 = Omega13 * np.exp(-r**2/(2*waist**2))
+        #     dy[0] = (-Gamma/2)*x[0]-(Gamma/2)*x[1]+(1j*np.conj(Om13)/2)*x[4]-(1j*Om13/2)*x[5] + Gamma/2
+        #     dy[1] = (-Gamma/2)*x[0]-(Gamma/2)*x[1]+(1j*np.conj(Om23)/2)*x[6]-(1j*Om23/2)*x[7] + Gamma/2
+        #     dy[2] = -gamma21tilde*x[2]+(1j*np.conj(Om23)/2)*x[4]-(1j*Om13/2)*x[7]
+        #     dy[3] = -np.conj(gamma21tilde)*x[3] - (1j*Om23/2)*x[5] + (1j*np.conj(Om13)/2)*x[6]
+        #     dy[4] = 1j*Om13*x[0] + (1j*Om13/2)*x[1] + (1j*Om23/2)*x[2] - gamma31tilde*x[4] - 1j*Om13/2
+        #     dy[5] = -1j*np.conj(Om13)*x[0]-1j*(np.conj(Om13)/2)*x[1]-(1j*np.conj(Om23)/2)*x[3]-np.conj(gamma31tilde)*x[5]+1j*np.conj(Om13)/2
+        #     dy[6] = (1j*Om23/2)*x[0]+1j*Om23*x[1]+(1j*Om13/2)*x[3]-gamma32tilde*x[6]-1j*Om23/2
+        #     dy[7] = (-1j*np.conj(Om23)/2)*x[0]-1j*np.conj(Om23)*x[1]-(1j*np.conj(Om13)/2)*x[2]-np.conj(gamma32tilde)*x[7]+1j*np.conj(Om23)/2
+        #     return dy
+
+
+        ys = odeintw(deriv_notransit, self.x0, ts,
+                     args=(v, u0, u1, xinit, yinit, ynext),
+                     full_output=False, hmax=1e-4, hmin=1e-14, h0=1e-14,
+                     tfirst=True)
+        # ys = odeintw(deriv_notransit_c.ctypes, self.x0, ts,
+        #              args=(v, u0, u1, xinit, yinit, ynext, len(self.x0)),
+        #              full_output=False, hmax=1e-4, hmin=1e-14, h0=1e-14,
+        #              tfirst=True)
+        return ts, ys
+        # sol = solve_ivp(deriv_notransit, (np.min(ts), np.max(ts)), self.x0,
+        #                 t_eval=ts, args=(v, u0, u1, xinit, yinit, ynext),
+        #                 vectorized=False)
+        # return sol['t'], sol['y'].swapaxes(0, 1)
 
     def integrate_short_notransit(self, v, ts, xinit, yinit, xfinal, yfinal):
         # y, infodict = odeintw(self.deriv_notransit, self.x0, ts, args=(v,),
@@ -246,74 +310,3 @@ class temporal_bloch:
         y = odeintw(self.deriv_short_notransit, self.x0_short, ts, args=(v,),
                     full_output=False, hmax=1e-4, hmin=2e-14, h0=2e-14)
         return ts, y
-
-
-if __name__=="__main__":
-
-    detun = -1e9
-    waist = 1e-3
-    T     = 415
-    puiss = 0.5
-
-
-    high = temporal_bloch(T=T, puiss=puiss, waist=waist, detun=detun, L=0.1)
-    """
-    print(1e6/(high.deriv(x=np.zeros(4), t=0, vp=True)))
-
-    t, y   = high.integrate()
-    t_plot = np.linspace(0, len(t)-1, 50000, dtype=np.int32)
-    t_plot_2 = np.logspace(np.log(t_plot[1]), np.log(t_plot[-1]), 5000, base=np.exp(1), dtype=np.int32)
-    #n_high = np.sqrt(1+2*N(high.T)/(epsilon_0*high.E)*high.mu23*np.real(y[t_plot, 2]))
-    n_high = np.sqrt(1+2*N(high.T)/(epsilon_0*high.E)*(high.mu23*np.real(y[t_plot, 6])+high.mu13*np.real(y[t_plot, 4])))
-
-    plt.plot(t[t_plot_2]*1e6, np.abs(y[t_plot_2, 0]), color='b')
-    plt.plot(t[t_plot_2]*1e6, np.abs(y[t_plot_2, 1]), color='r')
-    plt.plot(t[t_plot_2]*1e6, 1-np.abs(y[t_plot_2, 1])-np.abs(y[t_plot_2, 0]), color='orange')
-    #np.savetxt('rho_11.txt', np.column_stack(([t[t_plot_2]*1e6, np.abs(y[t_plot_2, 0])])))
-    #np.savetxt('rho_22.txt', np.column_stack(([t[t_plot_2]*1e6, np.abs(y[t_plot_2, 1])])))
-    #np.savetxt('rho_33.txt', np.column_stack(([t[t_plot_2]*1e6,1-np.abs(y[t_plot_2, 1])-np.abs(y[t_plot_2, 0])])))
-
-    low   = temporal_bloch(T=T, puiss=1e-8, waist=waist, detun=detun, L=0.1)
-    t, y  = low.integrate()
-    #n_low = np.sqrt(1+2*N(low.T)/(epsilon_0*low.E)*low.mu23*np.real(y[t_plot, 2]))
-    n_low = np.sqrt(1+2*N(low.T)/(epsilon_0*low.E)*(low.mu23*np.real(y[t_plot, 6])+low.mu13*np.real(y[t_plot, 4])))
-
-    #plt.plot(t[t_plot]*1e6, np.abs(y[t_plot, 0]), '--', color='b')
-    #plt.plot(t[t_plot]*1e6, np.abs(y[t_plot, 1]), '--', color='r')
-    #plt.plot(t[t_plot]*1e6, 1-np.abs(y[t_plot, 1])-np.abs(y[t_plot, 0]), '--', color='orange')
-
-    plt.xlabel(r"Time in $\mu$ s")
-    plt.ylabel("Populations")
-    plt.xscale('log')
-    #plt.legend(["$\\rho_{11}$", "$\\rho_{22}$", "$\\rho_{33}$"])
-    #tikz.save('population_2.tex')
-
-    plt.figure(2)
-
-    index = np.real(n_high - n_low)
-
-    np.save('index', index)
-    """
-    index = np.load('index.npy')
-    t = np.arange(0, 2e-6, 2e-13)
-    t_plot = np.linspace(0, len(t)-1, 50000, dtype=np.int32)
-
-    index = savgol_filter(index, 10001, 3)
-    ptot, pcov = curve_fit(fit, t[t_plot], np.abs(index) , p0=[index[0]-index[-1], 1e-6 , index[-1]])
-
-    a, b = high.Gamma/(2*high.gamma), high.gamma_t/high.gamma
-    f    = np.real(1 + (high.detun/high.gamma)**2 + (1+b)/(2*b*(1+a))*(high.Omega23/high.gamma)**2)
-    #print((high.detun/high.gamma)**2, (1+b)/(2*b*(1+a))*(high.Omega23/high.gamma)**2)
-    # un essai plutot concluant : 4*np.pi/high.Gamma*(high.gamma/np.real(high.Omega23))*(1+np.abs(high.detun/high.gamma))
-
-    #plt.plot(t[t_plot]*1e6, index, label=r'Simulation: {:.3} $\mu$s'.format(1e6*1/high.deriv_short(x=np.zeros(4), t=0, vp=True)))
-    plt.plot(t[t_plot][::100]*1e6, np.abs(index)[::100], label=r'Simulation: {:.3} $\mu$s'.format(1e6*1/high.deriv(x=np.zeros(8), t=0, vp=True)))
-    plt.plot(t[t_plot][::100]*1e6, fit(t[t_plot][::100], *ptot), '--', label=r'Fit: $\tau = ${:.3} $\mu$s'.format(ptot[1]*1e6))
-    plt.xlabel(r"Time in $\mu$ s")
-    plt.ylabel(r"$\Delta$ n")
-    plt.legend()
-    #plt.xscale('log')
-    # tikz.save('nl_index.tex')
-    plt.show()
-
-    print(1e6/(high.deriv_short(x=np.zeros(4), t=0, vp=True)))
