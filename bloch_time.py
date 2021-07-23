@@ -7,7 +7,7 @@ from odeintw import odeintw
 from scipy.integrate import solve_ivp
 from numba import jit, cfunc, types
 import sys
-from NumbaLSODA import lsoda_sig, lsoda
+from bresenham import bresenham
 
 
 def N(T):
@@ -25,12 +25,18 @@ def fit(t, a, b, c):
 
 class temporal_bloch:
 
-    def __init__(self, T, puiss, waist, detun, L):
+    def __init__(self, T, puiss, waist, detun, L, N_grid=128, N_v=20,
+                 N_real=20, N_proc=15):
+        # grid params for MC
+        self.N_grid = N_grid
+        self.N_v = N_v
+        self.N_real = 20
 
         self.T = T
         self.L = L
         self.waist = waist
-        self.r0 = self.waist
+        self.window = 3*self.waist
+        self.r0 = self.window/2
         self.detun = 2*np.pi*detun
         self.puiss = puiss
         self.frac = 0.995
@@ -66,6 +72,29 @@ class temporal_bloch:
                                  dtype=np.complex128)
 
         print(f"Omega23 = {np.real(self.Omega23)*1e-9/(2*np.pi)} GHz")
+
+    def choose_points(self, plot=False):
+        edges = []
+        for i in range(self.N_grid):
+            edges.append((0, i))
+            edges.append((self.N_grid-1, i))
+            edges.append((i, 0))
+            edges.append((i, self.N_grid-1))
+        iinit, jinit = edges[np.random.randint(0, len(edges))]
+        ifinal, jfinal = iinit, jinit
+        cdtn = (ifinal == iinit) or (jfinal == jinit)
+        while cdtn:
+            ifinal, jfinal = edges[np.random.randint(0, len(edges))]
+            cdtn = (ifinal == iinit) or (jfinal == jinit)
+        if plot:
+            fig, ax = plt.subplots()
+            ax.plot([jinit, jfinal], [iinit, ifinal], ls='--', marker='o',
+                    scalex=False, scaley=False)
+            ax.set_xlim((0, self.N_grid-1))
+            ax.set_ylim((0, self.N_grid-1))
+            plt.show()
+        return iinit, jinit, ifinal, jfinal
+
 
     def deriv(self, x, t, vp=False):
         """Computes the differential term of MBE in the case of a 3 level system
@@ -169,22 +198,41 @@ class temporal_bloch:
 
         return t, y
 
-    def integrate_notransit(self, v, ts, xinit, yinit, xfinal, yfinal, ynext):
+    def draw_vz(self, v):
+        vz = np.abs(2*v)
+        while np.abs(vz) > np.abs(v):
+            vz = np.random.normal(0, np.sqrt(Boltzmann*self.T/self.m87))
+        return vz
 
+    def integrate_notransit(self, vz, v_perp, iinit, jinit, ifinal, jfinal, ynext):
+        path = bresenham(jinit, iinit, jfinal, ifinal)
+        xinit = jinit*self.window/self.N_grid
+        yinit = iinit*self.window/self.N_grid
+        xfinal = jfinal*self.window/self.N_grid
+        yfinal = ifinal*self.window/self.N_grid
         Gamma = self.Gamma
         gamma21tilde = self.gamma21tilde
-        gamma31tilde = self.gamma31tilde + self.k*v
-        gamma32tilde = self.gamma32tilde + self.k*v
+        gamma31tilde = self.gamma31tilde - 1j*self.k*vz
+        gamma32tilde = self.gamma32tilde - 1j*self.k*vz
         Omega13 = self.Omega13
         Omega23 = self.Omega23
         waist = self.waist
         r0 = self.r0
         # velocity unit vector
-        u0 = xfinal-xinit
-        u1 = yfinal-yinit
-        norm = np.hypot(u0, u1)
-        u0 /= norm
-        u1 /= norm
+        if v_perp != 0:
+            u0 = xfinal-xinit
+            u1 = yfinal-yinit
+            norm = np.hypot(u0, u1)
+            u0 /= norm
+            u1 /= norm
+            t_path = np.array([np.hypot(_[1]-iinit, _[0]-jinit)*self.window/(self.N_grid*v_perp) for _ in path])
+        else:
+            u0 = u1 = 0
+            t_path = np.array([np.hypot(_[1]-iinit, _[0]-jinit)*self.window/(self.N_grid*np.abs(vz)) for _ in path])
+        tfinal = t_path[-1]
+        # print(f'tfinal = {tfinal*1e6} us')
+        ts = np.arange(0, tfinal, 1e-10, dtype=np.float64)
+        # ts = np.linspace(0, tfinal, 10000)
 
         @jit(nopython=True, nogil=True, fastmath=True)
         def deriv_notransit(t, x, v, u0, u1, xinit, yinit, dy):
@@ -200,7 +248,7 @@ class temporal_bloch:
             :param float u0: unit vector for velocity along x
             :param float u1: unit vector for velocity along y
             :param float xinit: initial position x
-            :param float yinit: initial position y
+            :param float yinit: initial position y5000
             :param np.ndarray dy: vector to store next iteration
             :return: The updated density matrix elements
             :rtype: np.ndarray
@@ -222,6 +270,40 @@ class temporal_bloch:
             dy[7] = (-1j*np.conj(Om23)/2)*x[0]-1j*np.conj(Om23)*x[1]-(1j*np.conj(Om13)/2)*x[2]-np.conj(gamma32tilde)*x[7]
             dy += b
             return dy
+
+        @jit(nopython=True, nogil=True, fastmath=True)
+        def deriv_notransit_jac(t, x, v, u0, u1, xinit, yinit, dy):
+            """Computes the differential term of MBE in the case of a 3 level system
+            with one coupling field. The x vector represents the density matrix
+            elements rho_11, 22, 21, 12, 31, 13, 32, 23. This function is
+            optimized for speed through compilation, pre-allocation and the use
+            of fast maths.
+
+            :param np.ndarray x: Density matrix coefficients vector
+            :param float t: Time
+            :param float v: Atom initial velocity
+            :param float u0: unit vector for velocity along x
+            :param float u1: unit vector for velocity along y
+            :param float xinit: initial position x
+            :param float yinit: initial position y5000
+            :param np.ndarray dy: vector to store next iteration
+            :return: The updated density matrix elements
+            :rtype: np.ndarray
+
+            """
+            r = np.hypot(xinit+u0*v*t - r0, yinit+u1*v*t - r0)
+            Om23 = Omega23 * np.exp(-r**2/(2*waist**2))
+            Om13 = Omega13 * np.exp(-r**2/(2*waist**2))
+            A = np.array([[-Gamma/2, -Gamma/2, 0, 0, 1j*np.conj(Om13)/2, -1j*Om13/2, 0, 0],
+                 [-Gamma/2, -Gamma/2, 0, 0, 0, 0, 1j*np.conj(Om23)/2, -1j*Om23/2],
+                 [0, 0, -gamma21tilde, 0, 1j*np.conj(Om23)/2, 0, 0, -1j*Om13/2],
+                 [0, 0, 0, -np.conj(gamma21tilde), 0, -1j*Om23/2, 1j*np.conj(Om13)/2, 0],
+                 [1j*Om13, 1j*Om13/2, 1j*Om23/2, 0, -gamma31tilde, 0, 0, 0],
+                 [-1j*np.conj(Om13), -1j*np.conj(Om13)/2, 0, -1j*np.conj(Om23)/2, 0, -np.conj(gamma31tilde), 0, 0],
+                 [1j*Om23/2, 1j*Om23, 0, 1j*Om13/2, 0, 0, -gamma32tilde, 0],
+                 [-1j*np.conj(Om23)/2, -1j*np.conj(Om23), -1j*np.conj(Om13)/2, 0, 0, 0, 0, -np.conj(gamma32tilde)]],
+                 dtype=np.complex128)
+            return A
 
         # c_sig = types.NestedArray(dtype=types.complex128, shape=self.x0.shape)(
         #             types.float64, types.NestedArray(dtype=types.complex128, shape=self.x0.shape),
@@ -263,20 +345,28 @@ class temporal_bloch:
         #     dy[7] = (-1j*np.conj(Om23)/2)*x[0]-1j*np.conj(Om23)*x[1]-(1j*np.conj(Om13)/2)*x[2]-np.conj(gamma32tilde)*x[7]+1j*np.conj(Om23)/2
         #     return dy
 
-
-        ys = odeintw(deriv_notransit, self.x0, ts,
-                     args=(v, u0, u1, xinit, yinit, ynext),
-                     full_output=False, hmax=1e-4, hmin=1e-14, h0=1e-14,
-                     tfirst=True)
+        ys, infodict = odeintw(deriv_notransit, self.x0, ts,
+                               args=(v_perp, u0, u1, xinit, yinit, ynext),
+                               Dfun=deriv_notransit_jac,
+                               full_output=True, hmax=1e-4, hmin=1e-36,
+                               h0=1e-14, tfirst=True)
+        # nje = infodict['nje']
+        # print(f"{np.max(nje)=}")
+        # hu = infodict['hu']
+        # plt.plot(ts[1:]*1e6, hu, color='red')
+        # plt.xscale('log')
+        # plt.yscale('log')
+        # plt.show(block=False)
         # ys = odeintw(deriv_notransit_c.ctypes, self.x0, ts,
         #              args=(v, u0, u1, xinit, yinit, ynext, len(self.x0)),
         #              full_output=False, hmax=1e-4, hmin=1e-14, h0=1e-14,
         #              tfirst=True)
-        return ts, ys
+        return ts, ys, path
         # sol = solve_ivp(deriv_notransit, (np.min(ts), np.max(ts)), self.x0,
-        #                 t_eval=ts, args=(v, u0, u1, xinit, yinit, ynext),
-        #                 vectorized=False)
-        # return sol['t'], sol['y'].swapaxes(0, 1)
+        #                 t_eval=ts, args=(v_perp, u0, u1, xinit, yinit, ynext),
+        #                 jac=deriv_notransit_jac,
+        #                 vectorized=False) # , method='BDF')
+        # return sol['t'], sol['y'].swapaxes(0, 1), path
 
     def integrate_short_notransit(self, v, ts, xinit, yinit, xfinal, yfinal):
         # y, infodict = odeintw(self.deriv_notransit, self.x0, ts, args=(v,),

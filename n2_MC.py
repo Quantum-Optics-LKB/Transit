@@ -5,126 +5,181 @@ Created by Tangui Aladjidi on the 29/06/2021
 
 import numpy as np
 import matplotlib.pyplot as plt
-from bloch_time import temporal_bloch
+from bloch_time import temporal_bloch, N
 import time
 import sys
 import scipy.constants as cst
 from multiprocessing import Pool
-from bresenham import bresenham
 import progressbar
-
+from numba import jit
+from functools import partial
 
 T = 150+273  # cell temp
 puiss = 1  # power in W
 waist = 0.5e-3  # beam waist
-detun = -1e-9  # detuning
+detun = -1.5e9  # detuning
 L = 10e-3  # cell length
-solver = temporal_bloch(T, puiss, waist, detun, L)
-vs = np.linspace(40, 800, 20, dtype=np.float64)
-dv = vs[1]-vs[0]
-pv = ((2/np.pi)**1/2)*((solver.m87/(cst.Boltzmann*solver.T))**(3/2))*vs**2*np.exp(-solver.m87*vs**2/(2*cst.Boltzmann*solver.T))
-# plt.plot(vs, pv)
-# plt.show()
-N = 128
+N_grid = 128
+N_v = 20
 N_real = 20
 N_proc = 15
+solver = temporal_bloch(T, puiss, waist, detun, L, N_grid=N_grid, N_v=N_v,
+                        N_real=N_real, N_proc=N_proc)
+solver1 = temporal_bloch(T, 1e-9, waist, detun, L, N_grid=N_grid, N_v=N_v,
+                         N_real=N_real, N_proc=N_proc)
 
-def choose_points():
-    edges = []
-    for i in range(N-1):
-        edges.append((0, i))
-        edges.append((N-1, i))
-        edges.append((i, 0))
-        edges.append((i, N-1))
-    iinit, jinit = edges[np.random.randint(0, len(edges)-1)]
-    ifinal, jfinal = iinit, jinit
-    while (ifinal == iinit or jfinal == jinit):
-        ifinal, jfinal = edges[np.random.randint(0, len(edges)-1)]
-    return iinit, jinit, ifinal, jfinal
 
-# iinit, jinit, ifinal, jfinal = choose_points()
-# xinit = jinit*2*solver.waist/N
-# yinit = iinit*2*solver.waist/N
-# xfinal = jfinal*2*solver.waist/N
-# yfinal = ifinal*2*solver.waist/N
-# ts = np.arange(0, np.hypot(xfinal-xinit, yfinal-yinit)/vs[5], 2e-9)
-# t, y0 = solver.integrate_short_notransit(vs[0], ts, xinit, yinit, xfinal, yfinal)
-# t, y1 = solver.integrate_notransit(vs[0], ts, xinit, yinit, xfinal, yfinal)
-# plt.plot(t, y0[:, -2],)
-# plt.plot(t, y1[:, -2])
-# plt.legend(["Short", "Long"])
-# plt.xlabel("Time in s")
+# choose_points(plot=False)
+iinit, jinit, ifinal, jfinal = solver.choose_points(plot=False)
+# xinit = jinit*solver.window/N_grid
+# yinit = iinit*solver.window/N_grid
+# xfinal = jfinal*solver.window/N_grid
+# yfinal = ifinal*solver.window/N_grid
+# # ts = np.arange(0, np.hypot(xfinal-xinit, yfinal-yinit)/200, 5e-9)
+# ts = np.arange(0, 2e-6, 5e-10)
+# t, y0 = solver.integrate_notransit(40, ts, xinit, yinit, xfinal, yfinal)
+# v = 40
+# vz = solver.draw_vz(v)
+# # vz = -14.394064511361588
+# # vz = -6.0
+# v_perp = np.sqrt(v**2 - vz**2)
+# print(f"{vz=} m/s, {v_perp=} m/s, {solver.k*vz*1e-9/(2*np.pi)} GHz")
+# t, y1, path = solver.integrate_notransit(vz, v_perp, iinit, jinit, ifinal, jfinal, np.zeros(8, dtype=np.complex128))
+# # t, y1 = solver.integrate_notransit(0, ts, solver.r0, solver.r0, solver.r0, solver.r0, np.zeros(8, dtype=np.complex128))
+# # plt.plot(t, y0[:, -2],)
+# indices = np.linspace(0, len(t)-1, 1000, dtype=np.uint32)
+# # print(y1[indices, -2])
+# plt.plot(t[indices]*1e6, np.abs(y1[indices, -2]))
+# # plt.legend(["Short", "Long"])
+# plt.xlabel("Time in $\\mu s$")
 # plt.ylabel("$\\rho_{23}$")
+# plt.xscale('log')
+# plt.yscale('log')
 # plt.show()
 
 # fig, ax = plt.subplots()
+# counter = np.zeros((N_grid, N_grid), dtype=np.uint16)
 # for i in range(N_real):
 #     iinit, jinit, ifinal, jfinal = choose_points()
 #     path = bresenham(jinit, iinit, jfinal, ifinal)
-#     ax.plot([jinit, jfinal], [iinit, ifinal])
-#     ax.scatter([_[0] for _ in path], [_[1] for _ in path])
-# plt.title("One realization")
+#     # ax.plot([jinit, jfinal], [iinit, ifinal], color='blue')
+#     # ax.scatter([_[0] for _ in path], [_[1] for _ in path], color='gray')
+#     for coord in path:
+#         counter[coord[0], coord[1]] += 1
+# ax.imshow(counter)
+# plt.title(f"{N_real} realizations")
 # plt.show()
 
 
-t0 = time.time()
-pols = np.empty((len(vs), N, N), dtype=np.float32)
-print("Computing the velocity classes ...")
-# computing asynchronously for speed
-with progressbar.ProgressBar(max_value=len(vs)*N_real) as bar:
-    for counter, v in enumerate(vs):
-        grids = []
-        plot = False
-        
-        def thread_function(k):
-            np.random.seed(counter*N_real+k+1)
-            path = []
-            while len(path) < 2:
-                iinit, jinit, ifinal, jfinal = choose_points()
-                path = bresenham(jinit, iinit, jfinal, ifinal)
-            t_path = [(np.hypot(_[1]-iinit, _[0]-jinit)*2*solver.waist/N)/v for _ in path]
-            tfinal = np.float32(np.max(t_path))
-            t = np.linspace(0, tfinal, N**2, dtype=np.float64)
-            xinit = jinit*2*solver.waist/N
-            yinit = iinit*2*solver.waist/N
-            xfinal = jfinal*2*solver.waist/N
-            yfinal = ifinal*2*solver.waist/N
-            ynext = np.empty(solver.x0.shape, dtype=np.complex128)
-            a, b = solver.integrate_notransit(v, t, xinit, yinit, xfinal, yfinal, ynext)
-            # a, b = solver.integrate_notransit_c(v, t, xinit, yinit, xfinal, yfinal)
-            grid = np.zeros((N, N), dtype=np.float32)
-            for coord in path:
-                if coord[0] > N-1:
-                    coord[0] = N-1
-                if coord[1] > N-1:
-                    coord[1] = N-1
-                tpath = np.hypot(coord[1]-iinit, coord[0]-jinit)*2*solver.waist/(v*N)
-                grid[coord[1], coord[0]] += np.real(b[np.argmin(np.abs(t-tpath)), -2]).astype(np.float32)
-            if plot:
-                fig, ax = plt.subplots(1, 2)
-                ax[0].plot([jinit, jfinal], [iinit, ifinal], color='red', ls='-')
-                ax[0].scatter([_[0] for _ in path], [_[1] for _ in path], color='blue')
-                ax[0].set_xlim((0, N-1))
-                ax[0].set_ylim((0, N-1))
-                ax[1].imshow(grid, origin='lower')
-                fig.suptitle("Realization")
-                plt.show()
-            return grid
-        # for loop iterative for debugging
-        # for k in range(N_real):
-        #     grids.append(thread_function(k))
-        with Pool(N_proc) as executor:
-            for i, _ in enumerate(executor.imap_unordered(thread_function,
-                                  range(N_real), N_real//N_proc)):
-                bar.update(counter*N_real + i)
-                grids.append(_)
-        grids = np.asarray(grids)
-        pols[counter, :, :] = np.mean(grids, axis=0)
-t1 = time.time()-t0
-print(f"\nTime elapsed {t1} s")
-np.save(f'results/pols_long_{len(vs)}_{N_real}_{time.ctime()}.npy', pols)
-# pols = np.load('pols_long_1000.npy')
-pols = np.swapaxes(pols, 0, 1)
-pols = np.swapaxes(pols, 1, 2)
-plt.imshow(np.sum(dv*pols*pv, axis=2), origin='lower')
+def thread_function(k, solver, counter, v, plot):
+    np.random.seed(counter*N_real+k+1)
+    iinit, jinit, ifinal, jfinal = solver.choose_points()
+    ynext = np.empty(solver.x0.shape, dtype=np.complex128)
+    vz = solver.draw_vz(v)
+    v_perp = np.sqrt(v**2 - vz**2)
+    a, b, path = solver.integrate_notransit(vz, v_perp, iinit, jinit, ifinal,
+                                            jfinal, ynext)
+    # a, b = solver.integrate_notransit_c(v, t, xinit, yinit, xfinal, yfinal)
+    grid = np.zeros((solver.N_grid, solver.N_grid), dtype=np.float32)
+    counter_grid = np.zeros((solver.N_grid, solver.N_grid), dtype=np.uint16)
+    for coord in path:
+        if coord[0] > N_grid-1:
+            coord[0] = N_grid-1
+        if coord[1] > N_grid-1:
+            coord[1] = N_grid-1
+        tpath = np.hypot(coord[1]-iinit, coord[0]-jinit)*solver.window/(v_perp*solver.N_grid)
+        grid[coord[1], coord[0]] += np.real(b[np.argmin(np.abs(a-tpath)), -2]).astype(np.float32)
+        counter_grid[coord[1], coord[0]] += 1
+    if plot:
+        # velocity unit vector
+        xinit = jinit*solver.window/solver.N_grid
+        yinit = iinit*solver.window/solver.N_grid
+        xfinal = jfinal*solver.window/solver.N_grid
+        yfinal = ifinal*solver.window/solver.N_grid
+        u0 = xfinal-xinit
+        u1 = yfinal-yinit
+        norm = np.hypot(u0, u1)
+        u0 /= norm
+        u1 /= norm
+        t_path = np.array([np.hypot(_[1]-iinit, _[0]-jinit)*solver.window/(solver.N_grid*v_perp) for _ in path])
+        fig, ax = plt.subplots(1, 3)
+        ax[0].plot([jinit, jfinal], [iinit, ifinal], color='red', ls='-')
+        ax[0].scatter([_[0] for _ in path], [_[1] for _ in path], color='blue')
+        ax[0].scatter((xinit+u0*v_perp*t_path)*(N_grid/solver.window),
+                      (yinit+u1*v_perp*t_path)*(N_grid/solver.window), color='green')
+        ax[0].scatter(solver.r0*(N_grid/solver.window), solver.r0*(N_grid/solver.window), marker='+')
+        ax[0].set_xlim((0, N_grid-1))
+        ax[0].set_ylim((0, N_grid-1))
+        ax[1].imshow(grid, origin='lower')
+        ax[2].imshow(counter_grid, origin='lower')
+        fig.suptitle("Realization")
+        plt.show()
+    return grid, counter_grid
+
+
+def run_sim(solver, plot=True):
+    t0 = time.time()
+    vs = np.linspace(40, 800, N_v, dtype=np.float64)
+    dv = vs[1]-vs[0]
+    pv = ((2/np.pi)**1/2)*((solver.m87/(cst.Boltzmann*solver.T))**(3/2))*vs**2*np.exp(-solver.m87*vs**2/(2*cst.Boltzmann*solver.T))
+    pols = np.empty((len(vs), N_grid, N_grid), dtype=np.float32)
+    counter_grids_final = np.empty((len(vs), N_grid, N_grid), dtype=np.uint16)
+    print("Computing the velocity classes ...")
+    # computing asynchronously for speed
+    with progressbar.ProgressBar(max_value=len(vs)*N_real) as bar:
+        for counter, v in enumerate(vs):
+            grids = []
+            counter_grids = []
+            # plot = False
+            t_func = partial(thread_function, solver=solver, counter=counter,
+                             v=v, plot=False)
+            # for loop iterative for debugging
+            # for k in range(N_real):
+            #     grids.append(thread_function(k, solver, counter, v, plot=True))
+            with Pool(N_proc) as executor:
+                for i, _ in enumerate(executor.imap_unordered(t_func,
+                                      range(N_real), N_real//N_proc)):
+                    bar.update(counter*N_real + i)
+                    grids.append(_[0])
+                    counter_grids.append(_[1])
+            grids = np.asarray(grids)
+            counter_grids = np.asarray(counter_grids)
+            pols[counter, :, :] = np.mean(grids, axis=0)
+            counter_grids_final[counter, :, :] = np.sum(counter_grids, axis=0)
+    t1 = time.time()-t0
+    print(f"\nTime elapsed {t1} s")
+    # pols = np.load('pols_long_1000.npy')
+    pols = np.divide(pols, counter_grids_final, out=np.zeros_like(pols),
+                     where=counter_grids_final != 0)
+    pols = np.swapaxes(pols, 0, 1)
+    pols = np.swapaxes(pols, 1, 2)
+    renorm = np.sum(dv*pols*pv, axis=2)  #/np.sum(counter_grids_final, axis=0)
+    renorm *= 2*N(solver.T) * np.abs(solver.mu23) / (solver.E * cst.epsilon_0)
+    if plot:
+        fig, ax = plt.subplots(1, 3)
+        im0 = ax[0].imshow(np.sum(pols*pv, axis=2), origin='lower', vmin=0, vmax=1)
+        # im0 = ax[0].imshow(pols[:, :, 0], origin='lower')
+        ax[0].set_title("Polarization")
+        im1 = ax[1].imshow(np.sum(counter_grids_final, axis=0), origin='lower')
+        # im1 = ax[1].imshow(counter_grids_final[0, :, :], origin='lower')
+        ax[1].set_title("Counts")
+        im2 = ax[2].imshow(renorm, origin='lower')
+        ax[2].set_title("Renormalized")
+        fig.colorbar(im0, ax=ax[0])
+        fig.colorbar(im1, ax=ax[1])
+        fig.colorbar(im2, ax=ax[2])
+        plt.show()
+    return renorm
+
+
+renorm = run_sim(solver, plot=True)
+renorm1 = run_sim(solver1, plot=True)
+np.save(f'results/pols_long_highp_{N_v}_{N_real}_{time.ctime()}.npy', renorm)
+np.save(f'results/pols_long_lowp_{N_v}_{N_real}_{time.ctime()}.npy', renorm)
+chi3 = (renorm - renorm1)/solver.I
+n0 = np.sqrt(1 + renorm1)
+n2 = (3/(4*n0*cst.epsilon_0*cst.c))*chi3
+plt.imshow(n2, origin='lower')
+plt.title("n2")
+plt.colorbar()
 plt.show()
