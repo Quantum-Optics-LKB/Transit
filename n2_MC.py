@@ -5,6 +5,7 @@ Created by Tangui Aladjidi on the 29/06/2021
 
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.colors as colors
 from bloch_time import temporal_bloch, N
 import time
 import sys
@@ -13,24 +14,22 @@ from multiprocessing import Pool
 import progressbar
 from numba import jit
 from functools import partial
+from julia import Main
+from diffeqpy import de
 
 T = 150+273  # cell temp
-puiss = 1  # power in W
-waist = 0.5e-3  # beam waist
-detun = -1.5e9  # detuning
+puiss = 1e-3  # power in W
+waist = 1e-3  # beam waist
+detun = -3e9  # detuning
 L = 10e-3  # cell length
 N_grid = 128
 N_v = 20
-N_real = 20
+N_real = 1000
 N_proc = 15
-solver = temporal_bloch(T, puiss, waist, detun, L, N_grid=N_grid, N_v=N_v,
-                        N_real=N_real, N_proc=N_proc)
-solver1 = temporal_bloch(T, 1e-9, waist, detun, L, N_grid=N_grid, N_v=N_v,
-                         N_real=N_real, N_proc=N_proc)
 
 
 # choose_points(plot=False)
-iinit, jinit, ifinal, jfinal = solver.choose_points(plot=False)
+# iinit, jinit, ifinal, jfinal = solver.choose_points(plot=False)
 # xinit = jinit*solver.window/N_grid
 # yinit = iinit*solver.window/N_grid
 # xfinal = jfinal*solver.window/N_grid
@@ -77,7 +76,7 @@ def thread_function(k, solver, counter, v, plot):
     ynext = np.empty(solver.x0.shape, dtype=np.complex128)
     vz = solver.draw_vz(v)
     v_perp = np.sqrt(v**2 - vz**2)
-    a, b, path = solver.integrate_notransit(vz, v_perp, iinit, jinit, ifinal,
+    a, b, path = solver.integrate_notransit(de, Main, vz, v_perp, iinit, jinit, ifinal,
                                             jfinal, ynext)
     # a, b = solver.integrate_notransit_c(v, t, xinit, yinit, xfinal, yfinal)
     grid = np.zeros((solver.N_grid, solver.N_grid), dtype=np.float32)
@@ -134,17 +133,20 @@ def run_sim(solver, plot=True):
             t_func = partial(thread_function, solver=solver, counter=counter,
                              v=v, plot=False)
             # for loop iterative for debugging
-            # for k in range(N_real):
-            #     grids.append(thread_function(k, solver, counter, v, plot=True))
-            with Pool(N_proc) as executor:
-                for i, _ in enumerate(executor.imap_unordered(t_func,
-                                      range(N_real), N_real//N_proc)):
-                    bar.update(counter*N_real + i)
-                    grids.append(_[0])
-                    counter_grids.append(_[1])
+            for k in range(N_real):
+                grid, counter_grid = thread_function(k, solver, counter, v, plot=False)
+                grids.append(grid)
+                counter_grids.append(counter_grid)
+                bar.update(counter*N_real + k)
+            # with Pool(N_proc) as executor:
+            #     for i, _ in enumerate(executor.imap_unordered(t_func,
+            #                           range(N_real), N_real//N_proc)):
+            #         bar.update(counter*N_real + i)
+            #         grids.append(_[0])
+            #         counter_grids.append(_[1])
             grids = np.asarray(grids)
             counter_grids = np.asarray(counter_grids)
-            pols[counter, :, :] = np.mean(grids, axis=0)
+            pols[counter, :, :] = np.sum(grids, axis=0)
             counter_grids_final[counter, :, :] = np.sum(counter_grids, axis=0)
     t1 = time.time()-t0
     print(f"\nTime elapsed {t1} s")
@@ -157,7 +159,7 @@ def run_sim(solver, plot=True):
     renorm *= 2*N(solver.T) * np.abs(solver.mu23) / (solver.E * cst.epsilon_0)
     if plot:
         fig, ax = plt.subplots(1, 3)
-        im0 = ax[0].imshow(np.sum(pols*pv, axis=2), origin='lower', vmin=0, vmax=1)
+        im0 = ax[0].imshow(np.sum(pols*pv, axis=2), origin='lower')
         # im0 = ax[0].imshow(pols[:, :, 0], origin='lower')
         ax[0].set_title("Polarization")
         im1 = ax[1].imshow(np.sum(counter_grids_final, axis=0), origin='lower')
@@ -172,14 +174,41 @@ def run_sim(solver, plot=True):
     return renorm
 
 
-renorm = run_sim(solver, plot=True)
-renorm1 = run_sim(solver1, plot=True)
-np.save(f'results/pols_long_highp_{N_v}_{N_real}_{time.ctime()}.npy', renorm)
-np.save(f'results/pols_long_lowp_{N_v}_{N_real}_{time.ctime()}.npy', renorm)
-chi3 = (renorm - renorm1)/solver.I
-n0 = np.sqrt(1 + renorm1)
-n2 = (3/(4*n0*cst.epsilon_0*cst.c))*chi3
-plt.imshow(n2, origin='lower')
-plt.title("n2")
-plt.colorbar()
-plt.show()
+if __name__ == "__main__":
+    solver = temporal_bloch(T, puiss, waist, detun, L, N_grid=N_grid, N_v=N_v,
+                            N_real=N_real, N_proc=N_proc)
+    solver1 = temporal_bloch(T, 1e-9, waist, detun, L, N_grid=N_grid, N_v=N_v,
+                             N_real=N_real, N_proc=N_proc)
+
+    renorm = run_sim(solver, plot=False)
+    plt.close('all')
+    renorm1 = run_sim(solver1, plot=False)
+    np.save(f'results/pols_long_highp_{N_v}_{N_real}_{time.ctime()}.npy', renorm)
+    np.save(f'results/pols_long_lowp_{N_v}_{N_real}_{time.ctime()}.npy', renorm)
+    chi3 = (renorm - renorm1)/solver.I
+    n0 = np.sqrt(1 + renorm1)
+    n2 = (3/(4*n0*cst.epsilon_0*cst.c))*chi3
+    plt.imshow(n2, origin='lower', norm=colors.SymLogNorm(linthresh=1e-15, linscale=1,
+                                              vmin=np.nanmin(n2), vmax=0, base=10))
+    plt.title("n2")
+    plt.colorbar()
+    plt.show()
+    # waists = np.linspace(0.25e-3, 2e-3, 5)
+    # Ts = np.linspace(90, 150, 5)
+    # n2_w_T = np.empty((len(waists), len(Ts), N_grid, N_grid), dtype=np.float32)
+    # np.save(f'results/Ts_{time.ctime()}.npy', Ts)
+    # np.save(f'results/waists_{time.ctime()}.npy', waists)
+    # for counter_w, waist in enumerate(waists):
+    #     for counter_T, T in enumerate(Ts):
+    #         print(f"Waist {counter_w+1}/{len(waists)}   /// T {counter_T+1}/{len(Ts)}")
+    #         solver = temporal_bloch(T, puiss, waist, detun, L, N_grid=N_grid,
+    #                                 N_v=N_v, N_real=N_real, N_proc=N_proc)
+    #         solver1 = temporal_bloch(T, 1e-9, waist, detun, L, N_grid=N_grid,
+    #                                  N_v=N_v, N_real=N_real, N_proc=N_proc)
+    #         renorm = run_sim(solver, plot=False)
+    #         renorm1 = run_sim(solver1, plot=False)
+    #         chi3 = (renorm - renorm1)/solver.I
+    #         n0 = np.sqrt(1 + renorm1)
+    #         n2 = (3/(4*n0*cst.epsilon_0*cst.c))*chi3
+    #         n2_w_T[counter_w, counter_T, :, :] = n2
+    #         np.save(f'results/n2_w_T_{time.ctime()}.npy', n2)

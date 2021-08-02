@@ -7,11 +7,64 @@ from odeintw import odeintw
 from scipy.integrate import solve_ivp
 from numba import jit, cfunc, types, float64, complex128, void
 import sys
-from bresenham import bresenham
-from julia import Main, Julia
-jl = Julia(sysimage="sys.so")
-from diffeqpy import de
+# from julia import Main, Julia
+# # jl = Julia(sysimage="sys.so")
+# from diffeqpy import de
 
+@jit(nopython=True)
+def bresenham(x1, y1, x2, y2):
+    """Bresenham's Line Algorithm
+    Produces a list of tuples from start and end
+
+    >>> points1 = get_line((0, 0), (3, 4))
+    >>> points2 = get_line((3, 4), (0, 0))
+    >>> assert(set(points1) == set(points2))
+    >>> print points1
+    [(0, 0), (1, 1), (1, 2), (2, 3), (3, 4)]
+    >>> print points2
+    [(3, 4), (2, 3), (1, 2), (1, 1), (0, 0)]
+    """
+    dx = x2 - x1
+    dy = y2 - y1
+
+    # Determine how steep the line is
+    is_steep = abs(dy) > abs(dx)
+
+    # Rotate line
+    if is_steep:
+        x1, y1 = y1, x1
+        x2, y2 = y2, x2
+
+    # Swap start and end points if necessary and store swap state
+    swapped = False
+    if x1 > x2:
+        x1, x2 = x2, x1
+        y1, y2 = y2, y1
+        swapped = True
+
+    # Recalculate differentials
+    dx = x2 - x1
+    dy = y2 - y1
+
+    # Calculate error
+    error = int(dx / 2.0)
+    ystep = 1 if y1 < y2 else -1
+
+    # Iterate over bounding box generating points between start and end
+    y = y1
+    points = []
+    for x in range(x1, x2 + 1):
+        coord = [y, x] if is_steep else [x, y]
+        points.append(coord)
+        error -= abs(dy)
+        if error < 0:
+            y += ystep
+            error += dx
+
+    # Reverse the list if the coordinates were swapped
+    if swapped:
+        points.reverse()
+    return points
 
 def N(T):
     P_v = 10**(15.88253 - 4529.635/T + 0.00058663*T - 2.99138*np.log10(T))
@@ -115,25 +168,7 @@ def deriv_notransit_mut(dy, x, p, t):
     dy += b
 
 
-deriv_notransit_jul = Main.eval("""
-function f(dy, x, p, t)
-    v, u0, u1, xinit, yinit = p[1], p[2], p[3], p[4], p[5]
-    Gamma, Omega13, Omega23 = p[6], p[7], p[8]
-    gamma21tilde, gamma31tilde, gamma32tilde = p[9], p[10], p[11]
-    waist, r0 = p[12], p[13]
-    r_sq = (xinit+u0*v*t - r0)*(xinit+u0*v*t - r0) +\
-           (yinit+u1*v*t - r0)*(yinit+u1*v*t - r0)
-    Om23 = Omega23 * exp(-r_sq/(2*waist*waist))
-    Om13 = Omega13 * exp(-r_sq/(2*waist*waist))
-    dy[1] = (-Gamma/2)*x[1]-(Gamma/2)*x[2]+(im*conj(Om13)/2)*x[5]-(im*Om13/2)*x[6]+Gamma/2
-    dy[2] = (-Gamma/2)*x[1]-(Gamma/2)*x[2]+(im*conj(Om23)/2)*x[7]-(im*Om23/2)*x[8]+Gamma/2
-    dy[3] = -gamma21tilde*x[3]+(im*conj(Om23)/2)*x[5]-(im*Om13/2)*x[8]
-    dy[4] = -conj(gamma21tilde)*x[4] - (im*Om23/2)*x[6] + (im*conj(Om13)/2)*x[7]
-    dy[5] = im*Om13*x[1] + (im*Om13/2)*x[2] + (im*Om23/2)*x[3] - gamma31tilde*x[5]-im*Om13/2
-    dy[6] = -im*conj(Om13)*x[1]-im*(conj(Om13)/2)*x[2]-(im*conj(Om23)/2)*x[4]-conj(gamma31tilde)*x[6]+im*conj(Om13)/2
-    dy[7] = (im*Om23/2)*x[1]+im*Om23*x[2]+(im*Om13/2)*x[4]-gamma32tilde*x[7] - im*Om23/2
-    dy[8] = (-im*conj(Om23)/2)*x[1]-im*conj(Om23)*x[2]-(im*conj(Om13)/2)*x[3]-conj(gamma32tilde)*x[8]+im*conj(Om23)/2
-end""")
+
 
 @jit(complex128[:, ::1](float64, complex128[::1], complex128[::1], complex128[::1]),
      nopython=True, nogil=True, fastmath=True, cache=True)
@@ -254,7 +289,26 @@ class temporal_bloch:
             vz = np.random.normal(0, np.sqrt(Boltzmann*self.T/self.m87))
         return vz
 
-    def integrate_notransit(self, vz, v_perp, iinit, jinit, ifinal, jfinal, ynext):
+    def integrate_notransit(self, diffeq, jl, vz, v_perp, iinit, jinit, ifinal, jfinal, ynext):
+        deriv_notransit_jul = jl.eval("""
+        function f(dy, x, p, t)
+            v, u0, u1, xinit, yinit = p[1], p[2], p[3], p[4], p[5]
+            Gamma, Omega13, Omega23 = p[6], p[7], p[8]
+            gamma21tilde, gamma31tilde, gamma32tilde = p[9], p[10], p[11]
+            waist, r0 = p[12], p[13]
+            r_sq = (xinit+u0*v*t - r0)*(xinit+u0*v*t - r0) +\
+                   (yinit+u1*v*t - r0)*(yinit+u1*v*t - r0)
+            Om23 = Omega23 * exp(-r_sq/(2*waist*waist))
+            Om13 = Omega13 * exp(-r_sq/(2*waist*waist))
+            dy[1] = (-Gamma/2)*x[1]-(Gamma/2)*x[2]+(im*conj(Om13)/2)*x[5]-(im*Om13/2)*x[6]+Gamma/2
+            dy[2] = (-Gamma/2)*x[1]-(Gamma/2)*x[2]+(im*conj(Om23)/2)*x[7]-(im*Om23/2)*x[8]+Gamma/2
+            dy[3] = -gamma21tilde*x[3]+(im*conj(Om23)/2)*x[5]-(im*Om13/2)*x[8]
+            dy[4] = -conj(gamma21tilde)*x[4] - (im*Om23/2)*x[6] + (im*conj(Om13)/2)*x[7]
+            dy[5] = im*Om13*x[1] + (im*Om13/2)*x[2] + (im*Om23/2)*x[3] - gamma31tilde*x[5]-im*Om13/2
+            dy[6] = -im*conj(Om13)*x[1]-im*(conj(Om13)/2)*x[2]-(im*conj(Om23)/2)*x[4]-conj(gamma31tilde)*x[6]+im*conj(Om13)/2
+            dy[7] = (im*Om23/2)*x[1]+im*Om23*x[2]+(im*Om13/2)*x[4]-gamma32tilde*x[7] - im*Om23/2
+            dy[8] = (-im*conj(Om23)/2)*x[1]-im*conj(Om23)*x[2]-(im*conj(Om13)/2)*x[3]-conj(gamma32tilde)*x[8]+im*conj(Om23)/2
+        end""")
         path = bresenham(jinit, iinit, jfinal, ifinal)
         xinit = jinit*self.window/self.N_grid
         yinit = iinit*self.window/self.N_grid
@@ -287,9 +341,9 @@ class temporal_bloch:
         #                        h0=1e-12, tfirst=True)
         # return ts, ys, path
         tspan = (0, tfinal)
-        prob = de.ODEProblem(deriv_notransit_jul, self.x0, tspan, p,
+        prob = diffeq.ODEProblem(deriv_notransit_jul, self.x0, tspan, p,
                              maxiters=1e8)
-        sol = de.solve(prob, de.BS3(), saveat=ts)
+        sol = diffeq.solve(prob, diffeq.BS3(), saveat=ts)
         return np.array(sol.t, dtype=np.float64), \
             np.array(sol.u, dtype=np.complex128), path
 
