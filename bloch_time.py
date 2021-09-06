@@ -7,9 +7,8 @@ from odeintw import odeintw
 from scipy.integrate import solve_ivp
 from numba import jit, cfunc, types, float64, complex128, void
 import sys
-# from julia import Main, Julia
-# # jl = Julia(sysimage="sys.so")
-# from diffeqpy import de
+from julia import Main
+from diffeqpy import de
 
 @jit(nopython=True)
 def bresenham(x1, y1, x2, y2):
@@ -289,8 +288,8 @@ class temporal_bloch:
             vz = np.random.normal(0, np.sqrt(Boltzmann*self.T/self.m87))
         return vz
 
-    def integrate_notransit(self, diffeq, jl, vz, v_perp, iinit, jinit, ifinal, jfinal, ynext):
-        deriv_notransit_jul = jl.eval("""
+    def integrate_notransit(self, vz, v_perp, iinit, jinit, ifinal, jfinal, ynext):
+        deriv_notransit_jul = Main.eval("""
         function f(dy, x, p, t)
             v, u0, u1, xinit, yinit = p[1], p[2], p[3], p[4], p[5]
             Gamma, Omega13, Omega23 = p[6], p[7], p[8]
@@ -341,9 +340,9 @@ class temporal_bloch:
         #                        h0=1e-12, tfirst=True)
         # return ts, ys, path
         tspan = (0, tfinal)
-        prob = diffeq.ODEProblem(deriv_notransit_jul, self.x0, tspan, p,
+        prob = de.ODEProblem(deriv_notransit_jul, self.x0, tspan, p,
                              maxiters=1e8)
-        sol = diffeq.solve(prob, diffeq.BS3(), saveat=ts)
+        sol = de.solve(prob, de.BS3(), saveat=ts)
         return np.array(sol.t, dtype=np.float64), \
             np.array(sol.u, dtype=np.complex128), path
 

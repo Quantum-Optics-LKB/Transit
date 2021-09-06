@@ -14,8 +14,7 @@ from multiprocessing import Pool
 import progressbar
 from numba import jit
 from functools import partial
-from julia import Main
-from diffeqpy import de
+
 
 T = 150+273  # cell temp
 puiss = 1e-3  # power in W
@@ -24,7 +23,7 @@ detun = -3e9  # detuning
 L = 10e-3  # cell length
 N_grid = 128
 N_v = 20
-N_real = 1000
+N_real = 10
 N_proc = 15
 
 
@@ -76,7 +75,7 @@ def thread_function(k, solver, counter, v, plot):
     ynext = np.empty(solver.x0.shape, dtype=np.complex128)
     vz = solver.draw_vz(v)
     v_perp = np.sqrt(v**2 - vz**2)
-    a, b, path = solver.integrate_notransit(de, Main, vz, v_perp, iinit, jinit, ifinal,
+    a, b, path = solver.integrate_notransit(vz, v_perp, iinit, jinit, ifinal,
                                             jfinal, ynext)
     # a, b = solver.integrate_notransit_c(v, t, xinit, yinit, xfinal, yfinal)
     grid = np.zeros((solver.N_grid, solver.N_grid), dtype=np.float32)
@@ -130,8 +129,8 @@ def run_sim(solver, plot=True):
             grids = []
             counter_grids = []
             # plot = False
-            t_func = partial(thread_function, solver=solver, counter=counter,
-                             v=v, plot=False)
+            # t_func = partial(thread_function, solver=solver, counter=counter,
+            #                  v=v, plot=False)
             # for loop iterative for debugging
             for k in range(N_real):
                 grid, counter_grid = thread_function(k, solver, counter, v, plot=False)
