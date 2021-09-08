@@ -23,7 +23,7 @@ detun = -3e9  # detuning
 L = 10e-3  # cell length
 N_grid = 128
 N_v = 20
-N_real = 10
+N_real = 1000
 N_proc = 15
 
 
@@ -121,10 +121,11 @@ def run_sim(solver, plot=True):
     dv = vs[1]-vs[0]
     pv = ((2/np.pi)**1/2)*((solver.m87/(cst.Boltzmann*solver.T))**(3/2))*vs**2*np.exp(-solver.m87*vs**2/(2*cst.Boltzmann*solver.T))
     pols = np.empty((len(vs), N_grid, N_grid), dtype=np.float32)
-    counter_grids_final = np.empty((len(vs), N_grid, N_grid), dtype=np.uint16)
+    counter_grids_final = np.empty((len(vs), N_grid, N_grid), dtype=np.int32)
     print("Computing the velocity classes ...")
     # computing asynchronously for speed
-    with progressbar.ProgressBar(max_value=len(vs)*N_real) as bar:
+    # with progressbar.ProgressBar(max_value=len(vs)*N_real) as bar:
+    with progressbar.ProgressBar(max_value=len(vs)) as bar:
         for counter, v in enumerate(vs):
             grids = []
             counter_grids = []
@@ -132,21 +133,27 @@ def run_sim(solver, plot=True):
             # t_func = partial(thread_function, solver=solver, counter=counter,
             #                  v=v, plot=False)
             # for loop iterative for debugging
-            for k in range(N_real):
-                grid, counter_grid = thread_function(k, solver, counter, v, plot=False)
-                grids.append(grid)
-                counter_grids.append(counter_grid)
-                bar.update(counter*N_real + k)
+            # for k in range(N_real):
+            #     grid, counter_grid = thread_function(k, solver, counter, v, plot=False)
+            #     grids.append(grid)
+            #     counter_grids.append(counter_grid)
+            #     bar.update(counter*N_real + k)
             # with Pool(N_proc) as executor:
             #     for i, _ in enumerate(executor.imap_unordered(t_func,
             #                           range(N_real), N_real//N_proc)):
             #         bar.update(counter*N_real + i)
             #         grids.append(_[0])
             #         counter_grids.append(_[1])
-            grids = np.asarray(grids)
-            counter_grids = np.asarray(counter_grids)
-            pols[counter, :, :] = np.sum(grids, axis=0)
-            counter_grids_final[counter, :, :] = np.sum(counter_grids, axis=0)
+            grid, counter_grid = solver.do_N_real(v)
+            # grids = np.asarray(grids)
+            # counter_grids = np.asarray(counter_grids)
+            # pols[counter, :, :] = np.sum(grids, axis=0)
+            # counter_grids_final[counter, :, :] = np.sum(counter_grids, axis=0)
+            pols[counter, :, :] = np.real(grid)
+            counter_grids_final[counter, :, :] = counter_grid
+            plt.imshow(np.abs(counter_grid))
+            plt.show()
+            bar.update(counter)
     t1 = time.time()-t0
     print(f"\nTime elapsed {t1} s")
     # pols = np.load('pols_long_1000.npy')
@@ -179,7 +186,7 @@ if __name__ == "__main__":
     solver1 = temporal_bloch(T, 1e-9, waist, detun, L, N_grid=N_grid, N_v=N_v,
                              N_real=N_real, N_proc=N_proc)
 
-    renorm = run_sim(solver, plot=False)
+    renorm = run_sim(solver, plot=True)
     plt.close('all')
     renorm1 = run_sim(solver1, plot=False)
     np.save(f'results/pols_long_highp_{N_v}_{N_real}_{time.ctime()}.npy', renorm)

@@ -1,10 +1,26 @@
 using DifferentialEquations
 # using DiffEqGPU, OrdinaryDiffEq
+# # for GPU try only with cuArrays in Float32 precision 
 using PyPlot
 
 # global variables to be set from python side through Julia "Main" namespace
+N_real = 5000
+N_grid = 256
+T = 150+273
 m87 = 1.44316060e-25
 k_B = 1.38064852e-23
+window = 2.5e-3
+Gamma = 1.0 + 0*im
+Omega13 = 1.0 + 0*im
+Omega23 = 1.0 + 0*im
+gamma21tilde = 1.0 + 0*im
+gamma31tilde = 1.0 + 0*im
+gamma32tilde = 1.0 + 0*im
+waist = 1.0e-3 + 0*im
+r0 = 1.0 + 0*im
+x0 = [5/8 + 0*im, 3/8+ 0*im, 0+ 0*im, 0+ 0*im, 0+ 0*im, 0+ 0*im, 0+ 0*im, 0+ 0*im]
+k = 2*pi/780.241e-9
+v = 40.0
 
 # function for line generation
 """
@@ -214,4 +230,5 @@ for i = 1:N_real
         counter_grid[coord[2], coord[1]] += 1
     end
 end
-(grid, counter_grid)
+imshow(real.(grid)./counter_grid)
+show()
