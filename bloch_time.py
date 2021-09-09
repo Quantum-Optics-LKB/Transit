@@ -7,8 +7,8 @@ from odeintw import odeintw
 from scipy.integrate import solve_ivp
 from numba import jit, cfunc, types, float64, complex128, void
 import sys
-from julia import Main
-from diffeqpy import de
+# from julia import Main
+# from diffeqpy import de
 
 @jit(nopython=True)
 def bresenham(x1, y1, x2, y2):
@@ -289,25 +289,25 @@ class temporal_bloch:
         return vz
 
     def integrate_notransit(self, vz, v_perp, iinit, jinit, ifinal, jfinal, ynext):
-        deriv_notransit_jul = Main.eval("""
-        function f(dy, x, p, t)
-            v, u0, u1, xinit, yinit = p[1], p[2], p[3], p[4], p[5]
-            Gamma, Omega13, Omega23 = p[6], p[7], p[8]
-            gamma21tilde, gamma31tilde, gamma32tilde = p[9], p[10], p[11]
-            waist, r0 = p[12], p[13]
-            r_sq = (xinit+u0*v*t - r0)*(xinit+u0*v*t - r0) +\
-                   (yinit+u1*v*t - r0)*(yinit+u1*v*t - r0)
-            Om23 = Omega23 * exp(-r_sq/(2*waist*waist))
-            Om13 = Omega13 * exp(-r_sq/(2*waist*waist))
-            dy[1] = (-Gamma/2)*x[1]-(Gamma/2)*x[2]+(im*conj(Om13)/2)*x[5]-(im*Om13/2)*x[6]+Gamma/2
-            dy[2] = (-Gamma/2)*x[1]-(Gamma/2)*x[2]+(im*conj(Om23)/2)*x[7]-(im*Om23/2)*x[8]+Gamma/2
-            dy[3] = -gamma21tilde*x[3]+(im*conj(Om23)/2)*x[5]-(im*Om13/2)*x[8]
-            dy[4] = -conj(gamma21tilde)*x[4] - (im*Om23/2)*x[6] + (im*conj(Om13)/2)*x[7]
-            dy[5] = im*Om13*x[1] + (im*Om13/2)*x[2] + (im*Om23/2)*x[3] - gamma31tilde*x[5]-im*Om13/2
-            dy[6] = -im*conj(Om13)*x[1]-im*(conj(Om13)/2)*x[2]-(im*conj(Om23)/2)*x[4]-conj(gamma31tilde)*x[6]+im*conj(Om13)/2
-            dy[7] = (im*Om23/2)*x[1]+im*Om23*x[2]+(im*Om13/2)*x[4]-gamma32tilde*x[7] - im*Om23/2
-            dy[8] = (-im*conj(Om23)/2)*x[1]-im*conj(Om23)*x[2]-(im*conj(Om13)/2)*x[3]-conj(gamma32tilde)*x[8]+im*conj(Om23)/2
-        end""")
+        # deriv_notransit_jul = Main.eval("""
+        # function f(dy, x, p, t)
+        #     v, u0, u1, xinit, yinit = p[1], p[2], p[3], p[4], p[5]
+        #     Gamma, Omega13, Omega23 = p[6], p[7], p[8]
+        #     gamma21tilde, gamma31tilde, gamma32tilde = p[9], p[10], p[11]
+        #     waist, r0 = p[12], p[13]
+        #     r_sq = (xinit+u0*v*t - r0)*(xinit+u0*v*t - r0) +\
+        #            (yinit+u1*v*t - r0)*(yinit+u1*v*t - r0)
+        #     Om23 = Omega23 * exp(-r_sq/(2*waist*waist))
+        #     Om13 = Omega13 * exp(-r_sq/(2*waist*waist))
+        #     dy[1] = (-Gamma/2)*x[1]-(Gamma/2)*x[2]+(im*conj(Om13)/2)*x[5]-(im*Om13/2)*x[6]+Gamma/2
+        #     dy[2] = (-Gamma/2)*x[1]-(Gamma/2)*x[2]+(im*conj(Om23)/2)*x[7]-(im*Om23/2)*x[8]+Gamma/2
+        #     dy[3] = -gamma21tilde*x[3]+(im*conj(Om23)/2)*x[5]-(im*Om13/2)*x[8]
+        #     dy[4] = -conj(gamma21tilde)*x[4] - (im*Om23/2)*x[6] + (im*conj(Om13)/2)*x[7]
+        #     dy[5] = im*Om13*x[1] + (im*Om13/2)*x[2] + (im*Om23/2)*x[3] - gamma31tilde*x[5]-im*Om13/2
+        #     dy[6] = -im*conj(Om13)*x[1]-im*(conj(Om13)/2)*x[2]-(im*conj(Om23)/2)*x[4]-conj(gamma31tilde)*x[6]+im*conj(Om13)/2
+        #     dy[7] = (im*Om23/2)*x[1]+im*Om23*x[2]+(im*Om13/2)*x[4]-gamma32tilde*x[7] - im*Om23/2
+        #     dy[8] = (-im*conj(Om23)/2)*x[1]-im*conj(Om23)*x[2]-(im*conj(Om13)/2)*x[3]-conj(gamma32tilde)*x[8]+im*conj(Om23)/2
+        # end""")
         path = bresenham(jinit, iinit, jfinal, ifinal)
         xinit = jinit*self.window/self.N_grid
         yinit = iinit*self.window/self.N_grid
@@ -333,18 +333,18 @@ class temporal_bloch:
                       self.gamma31tilde - 1j*self.k*vz,
                       self.gamma32tilde - 1j*self.k*vz, self.waist, self.r0],
                      dtype=np.complex128)
-        # ys, infodict = odeintw(deriv_notransit, self.x0, ts,
-        #                        args=(p, ynext),
-        #                        Dfun=deriv_notransit_jac,
-        #                        full_output=True, hmax=1e-2, hmin=1e-36,
-        #                        h0=1e-12, tfirst=True)
-        # return ts, ys, path
-        tspan = (0, tfinal)
-        prob = de.ODEProblem(deriv_notransit_jul, self.x0, tspan, p,
-                             maxiters=1e8)
-        sol = de.solve(prob, de.BS3(), saveat=ts)
-        return np.array(sol.t, dtype=np.float64), \
-            np.array(sol.u, dtype=np.complex128), path
+        ys, infodict = odeintw(deriv_notransit, self.x0, ts,
+                               args=(p, ynext),
+                               Dfun=deriv_notransit_jac,
+                               full_output=True, hmax=1e-2, hmin=1e-36,
+                               h0=1e-12, tfirst=True)
+        return ts, ys, path
+        # tspan = (0, tfinal)
+        # prob = de.ODEProblem(deriv_notransit_jul, self.x0, tspan, p,
+        #                      maxiters=1e8)
+        # sol = de.solve(prob, de.BS3(), saveat=ts)
+        # return np.array(sol.t, dtype=np.float64), \
+        #     np.array(sol.u, dtype=np.complex128), path
 
     def do_N_real(self, v: float):
         Main.eval(f"N_real = {self.N_real}")

@@ -1,26 +1,24 @@
 using DifferentialEquations
-# using DiffEqGPU, OrdinaryDiffEq
-# # for GPU try only with cuArrays in Float32 precision
+using DiffEqGPU, OrdinaryDiffEq
 using PyPlot
-
 # global variables to be set from python side through Julia "Main" namespace
-N_real = 100
+N_real = 5000
 N_grid = 256
 T = 150+273
 m87 = 1.44316060e-25
 k_B = 1.38064852e-23
-Gamma = 38107518.88804419 + 0*im
-Omega13 = 135886166.68478012 + 0*im
-Omega23 = 0.021626955125691984e9 + 0*im
-gamma21tilde = 321033.05667335045+42939288389.26529*im
-gamma31tilde = 46564466.011063695+61788844310.80405*im
-gamma32tilde = 46564466.011063695+18849555921.538757*im
+window = 2.5e-3
+Gamma = 1.0 + 0*im
+Omega13 = 1.0 + 0*im
+Omega23 = 1.0 + 0*im
+gamma21tilde = 1.0 + 0*im
+gamma31tilde = 1.0 + 0*im
+gamma32tilde = 1.0 + 0*im
 waist = 1.0e-3 + 0*im
-r0 = waist/1.5
-window = 3*waist
-x0 = [5/8 + 0*im, 3/8+ 0*im, 0+ 0*im, 0+ 0*im, 0+ 0*im, 0+ 0*im, 0+ 0*im, 0+ 0*im]
-k = 2*pi/780.241e-9
-v = 40.0
+r0 = 1.0 + 0*im
+x0 = ComplexF32[5/8 + 0*im, 3/8+ 0*im, 0+ 0*im, 0+ 0*im, 0+ 0*im, 0+ 0*im, 0+ 0*im, 0+ 0*im]
+k = Float32(2*pi/780.241e-9)
+v = 40.0f0
 
 # function for line generation
 """
@@ -90,7 +88,7 @@ function bresenham(x1::Int32, y1::Int32, x2::Int32, y2::Int32)
     return points
 end
 
-function choose_points()
+function choose_points()::Tuple{Int32, Int32, Int32, Int32}
     edges = Array{Tuple{Int32, Int32}, 1}(undef, 4*N_grid)
     for i in 1:N_grid
         edges[i] = (1, i)
@@ -108,7 +106,7 @@ function choose_points()
     return (iinit, jinit, ifinal, jfinal)
 end
 
-function draw_vz(v::Float64)::Float64
+function draw_vz(v::Float32)::Float32
     vz = abs(2*v)
     while abs(vz) > abs(v)
         vz = randn()*sqrt(k_B*T/m87)
@@ -116,7 +114,8 @@ function draw_vz(v::Float64)::Float64
     return vz
 end
 
-function f!(dy, x, p, t)
+function f!(dy::Array{ComplexF32, 1}, x::Array{ComplexF32, 1},
+            p::Array{ComplexF32, 1}, t::Float32)
     v, u0, u1, xinit, yinit = p[1], p[2], p[3], p[4], p[5]
     Gamma, Omega13, Omega23 = p[6], p[7], p[8]
     gamma21tilde, gamma31tilde, gamma32tilde = p[9], p[10], p[11]
@@ -137,7 +136,7 @@ end
 paths = [[] for i=1:N_real]
 xs = [[] for i=1:N_real]
 ts = [[] for i=1:N_real]
-v_perps = zeros(Float64, N_real)
+v_perps = zeros(Float32, N_real)
 function prob_func(prob, i, repeat)
     # change seed of random number generation as the solver uses multithreading
     iinit, jinit, ifinal, jfinal = choose_points()
@@ -159,26 +158,24 @@ function prob_func(prob, i, repeat)
         u0 = u1 = 0
         new_tfinal = hypot((xfinal-xinit), (yfinal-yinit))/abs(vz)
     end
-    new_p = [v_perp + 0*im, u0 + 0*im, u1 + 0*im, xinit + 0*im, yinit + 0*im,
+    new_p = ComplexF32[v_perp + 0*im, u0 + 0*im, u1 + 0*im, xinit + 0*im, yinit + 0*im,
              Gamma, Omega13, Omega23, gamma21tilde, gamma31tilde - im*k*vz,
              gamma32tilde - im*k*vz, waist, r0]
-    new_tspan = (0.0, new_tfinal)
-    tsave = collect(LinRange(0.0, new_tfinal, 1000))
+    new_tspan = (0.0f0, Float32(new_tfinal))
+    tsave = collect(LinRange{Float32}(0.0f0, new_tfinal, 1000))
     remake(prob, p=new_p, tspan=new_tspan, saveat=tsave)
 end
 # instantiate a problem
-p = [1.0 + 0*im, 1.0 + 0*im, 1.0 + 0*im, 1.0 + 0*im, 1.0 + 0*im,
+p = ComplexF32[1.0 + 0*im, 1.0 + 0*im, 1.0 + 0*im, 1.0 + 0*im, 1.0 + 0*im,
      Gamma, Omega13,
      Omega23, gamma21tilde,
      gamma31tilde - im*k*0.0,
      gamma32tilde - im*k*0.0, waist, r0]
-tspan = (0.0, 1.0)
-tsave = collect(LinRange(0.0, 1.0, 1000))
+tspan = (0.0f0, 1.0f0)
+tsave = collect(LinRange{Float32}(0.0f0, 1.0f0, 1000))
 prob = ODEProblem{true}(f!, x0, tspan, p, saveat=tsave)
 ensembleprob = EnsembleProblem(prob, prob_func=prob_func)
-@time sol = solve(ensembleprob, BS3(), EnsembleThreads(), trajectories=N_real,
-                  maxiters=Int(1e8))
-# @time sol = solve(ensembleprob, BS3(), EnsembleGPUArray(), trajectories=N_real)
+@time sol = solve(ensembleprob, BS3(), EnsembleGPUArray(), trajectories=N_real)
 for i in 1:N_real
     xs[i] = sol[i].u
     ts[i] = sol[i].t
@@ -198,7 +195,7 @@ for i in 1:N_real
     paths[i] = path
 end
 # Reformat xs as a proper multidimensional Array for easier indexing
-Xs = zeros(ComplexF64, (N_real, length(ts[1]), 8))
+Xs = zeros(ComplexF32, (N_real, length(ts[1]), 8))
 for i = 1:N_real
     for j = 1:length(ts[i])
         for k in 1:8
@@ -208,7 +205,7 @@ for i = 1:N_real
 end
 xs = nothing
 # define empty grid to accumulate the trajectories of the atoms and count them
-grid = zeros(ComplexF64, (N_grid, N_grid))
+grid = zeros(ComplexF32, (N_grid, N_grid))
 counter_grid = zeros(Int32, (N_grid, N_grid))
 for i = 1:N_real
     local iinit = paths[i][1][1]
@@ -231,9 +228,5 @@ for i = 1:N_real
         counter_grid[coord[2], coord[1]] += 1
     end
 end
-fig, ax = subplots(1, 2)
-ax[1].imshow(real.(grid)./(counter_grid))
-ax[2].imshow(counter_grid)
-ax[1].set_title("Polarization")
-ax[2].set_title("Counts")
+imshow(real.(grid)./counter_grid)
 show()
