@@ -225,8 +225,8 @@ Vs = collect(LinRange{Float64}(v0, v1, N_v))
 pv = sqrt(2/pi)*((m87/(k_B*T))^(3/2)).*Vs.^2 .*exp.(-m87*Vs.^2/(2*k_B*T))
 Xs = zeros(ComplexF64, (N_real, N_t, 8))
 Ts = zeros(Float64, (N_real, N_t))
-xs = [[] for i=1:N_real]
-ts = [[] for i=1:N_real]
+xs = [[[ComplexF64(8) for i=1:N_t]] for j=1:N_real]
+ts = [Float64[] for i=1:N_real]
 v_perps = zeros(Float64, N_real)
 paths = [[] for i=1:N_real]
 
