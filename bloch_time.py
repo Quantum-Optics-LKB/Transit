@@ -347,28 +347,28 @@ class temporal_bloch:
         #     np.array(sol.u, dtype=np.complex128), path
 
     def do_N_real(self, v: float):
-        Main.eval(f"N_real = {self.N_real}")
-        Main.eval(f"N_grid = {self.N_grid}")
-        Main.eval(f"T = {self.T}")
-        Main.eval(f"window = {self.window}")
-        Main.eval(f"Gamma = {np.real(self.Gamma)}+{np.imag(self.Gamma)}*im")
-        Main.eval(f"Omega13 = {np.real(self.Omega13)}+{np.imag(self.Omega13)}*im")
-        Main.eval(f"Omega23 = {np.real(self.Omega23)}+{np.imag(self.Omega23)}*im")
-        Main.eval(f"gamma21tilde = {np.real(self.gamma21tilde)}+{np.imag(self.gamma21tilde)}*im")
-        Main.eval(f"gamma31tilde = {np.real(self.gamma31tilde)}+{np.imag(self.gamma31tilde)}*im")
-        Main.eval(f"gamma32tilde = {np.real(self.gamma32tilde)}+{np.imag(self.gamma32tilde)}*im")
-        Main.eval(f"waist = {self.waist} + 0*im")
-        Main.eval(f"r0 = {self.r0} + 0*im")
-        Main.eval(f"x0 = [{self.G1} + 0*im, {self.G2} + im*0, 0.0*im, 0.0*im, 0.0*im, 0.0*im, 0.0*im, 0.0*im]")
-        Main.eval(f"k = {self.k}")
-        Main.eval(f"v = {v}")
+        Main.eval(f"const N_real = {self.N_real}")
+        Main.eval(f"const N_grid = {self.N_grid}")
+        Main.eval(f"const T = {self.T}")
+        Main.eval(f"const window = {self.window}")
+        Main.eval(f"const Gamma = {np.real(self.Gamma)}+{np.imag(self.Gamma)}*im")
+        Main.eval(f"const Omega13 = {np.real(self.Omega13)}+{np.imag(self.Omega13)}*im")
+        Main.eval(f"const Omega23 = {np.real(self.Omega23)}+{np.imag(self.Omega23)}*im")
+        Main.eval(f"const gamma21tilde = {np.real(self.gamma21tilde)}+{np.imag(self.gamma21tilde)}*im")
+        Main.eval(f"const gamma31tilde = {np.real(self.gamma31tilde)}+{np.imag(self.gamma31tilde)}*im")
+        Main.eval(f"const gamma32tilde = {np.real(self.gamma32tilde)}+{np.imag(self.gamma32tilde)}*im")
+        Main.eval(f"const waist = {self.waist} + 0*im")
+        Main.eval(f"const r0 = {self.r0} + 0*im")
+        Main.eval(f"const x0 = [{self.G1} + 0*im, {self.G2} + im*0, 0.0*im, 0.0*im, 0.0*im, 0.0*im, 0.0*im, 0.0*im]")
+        Main.eval(f"const k = {self.k}")
+        Main.eval(f"const v = {v}")
         grid, counter_grid = Main.eval("""
         using DifferentialEquations
         using PyPlot
 
         # global variables to be set from python side through Julia "Main" namespace
-        m87 = 1.44316060e-25
-        k_B = 1.38064852e-23
+        const m87 = 1.44316060e-25
+        const k_B = 1.38064852e-23
         # function for line generation
         function bresenham(x1::Int32, y1::Int32, x2::Int32, y2::Int32)
 

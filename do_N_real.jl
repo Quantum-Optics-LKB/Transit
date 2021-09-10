@@ -3,8 +3,8 @@ using DifferentialEquations
 using PyPlot
 
 # global variables to be set from python side through Julia "Main" namespace
-m87 = 1.44316060e-25
-k_B = 1.38064852e-23
+const m87 = 1.44316060e-25
+const k_B = 1.38064852e-23
 
 # function for line generation
 """

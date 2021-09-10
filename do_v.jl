@@ -7,7 +7,7 @@ t_tot0 = time()
 # global variables to be set from python side through Julia "Main" namespace
 const N_real = 5000
 const N_grid = 256
-const N_t = Int(round(sqrt(2)*N_grid, digits=1))
+const N_t = 1000
 const N_v = 20
 const T = 150+273
 const m87 = 1.44316060e-25
@@ -276,7 +276,7 @@ for (index_v, v) in enumerate(Vs)
     # run once on small system to try and speed up compile time
     if index_v==1
         t0 = time()
-        sol = solve(ensembleprob, Rosenbrock23(autodiff=false), EnsembleThreads(),
+        sol = solve(ensembleprob, Rodas5(autodiff=false), EnsembleThreads(),
                           trajectories=2, save_idxs=7,
                           abstol=1e-6, reltol=1e-3)
         t1 = time()
@@ -284,7 +284,7 @@ for (index_v, v) in enumerate(Vs)
 
     end
     t0 = time()
-    sol = solve(ensembleprob, Rosenbrock23(autodiff=false), EnsembleThreads(),
+    sol = solve(ensembleprob, Rodas5(autodiff=false), EnsembleThreads(),
                       trajectories=N_real, save_idxs=7,
                       abstol=1e-6, reltol=1e-3)
     t1 = time()
@@ -341,23 +341,25 @@ for (index_v, v) in enumerate(Vs)
 
     t0 = time()
     global grid .= zeros(ComplexF64, (N_grid, N_grid))
+    global counter_grid .= zeros(Int32, (N_grid, N_grid))
     Threads.@threads for i = 1:N_real
         local iinit = paths[i][1][1]
         local jinit = paths[i][1][2]
-        m_func(coord) = treat_coord!(i, coord, iinit, jinit, grid, counter_grid_total)
+        m_func(coord) = treat_coord!(i, coord, iinit, jinit, grid, counter_grid)
         map(m_func, paths[i])
     end
     t1 = time()
     println("Time spent to treat realizations : $(t1-t0) s")
-    grid_weighted .+= grid * pv[index_v]
+    grid_weighted .+= (grid./counter_grid) * pv[index_v]
+    counter_grid_total .+= counter_grid
 end
 # weighted_grid = real.(grids).*pv
 # pol = sum(weighted_grid, dims=1)
 # total_counts = sum(counter_grids, dims=1)
-normalized = real.(grid_weighted)./counter_grid_total
+pol = real.(grid_weighted)
 println("Total time elapsed : $(time()-t_tot0) s")
 fig, ax = subplots(1, 2)
-ax[1].imshow(normalized)
+ax[1].imshow(pol)
 ax[2].imshow(counter_grid_total)
 ax[1].set_title("Polarization")
 ax[2].set_title("Counts")
