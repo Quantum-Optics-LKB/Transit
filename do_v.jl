@@ -3,7 +3,6 @@ using OrdinaryDiffEq
 # # for GPU try only with cuArrays in Float64 precision
 using PyPlot
 
-
 t_tot0 = time()
 # global variables to be set from python side through Julia "Main" namespace
 const N_real = 5000
@@ -219,14 +218,19 @@ end
 # @time f_jac!(J, x0, p0, 1.0)
 
 
-grids = zeros(ComplexF64, (N_v, N_grid, N_grid))
-counter_grids = zeros(Int32, (N_v, N_grid, N_grid))
+#TODO directly put an accumulator array of size (N_grid, N_grid)
+# grids = zeros(ComplexF64, (N_v, N_grid, N_grid))
+# counter_grids = zeros(Int32, (N_v, N_grid, N_grid))
+# define empty grid to accumulate the trajectories of the atoms and count them
+grid = zeros(ComplexF64, (N_grid, N_grid))
+counter_grid = zeros(Int32, (N_grid, N_grid))
+counter_grid_total = zeros(Int32, (N_grid, N_grid))
+grid_weighted = zeros(ComplexF64, (N_grid, N_grid))
+normalized = zeros(Float64, (N_grid, N_grid))
 Vs = collect(LinRange{Float64}(v0, v1, N_v))
 pv = sqrt(2/pi)*((m87/(k_B*T))^(3/2)).*Vs.^2 .*exp.(-m87*Vs.^2/(2*k_B*T))
-Xs = zeros(ComplexF64, (N_real, N_t, 8))
-Ts = zeros(Float64, (N_real, N_t))
-xs = [[[ComplexF64(8) for i=1:N_t]] for j=1:N_real]
-ts = [Float64[] for i=1:N_real]
+Xs = zeros(ComplexF64, (N_t, N_real))
+Ts = zeros(Float64, (N_t, N_real))
 v_perps = zeros(Float64, N_real)
 paths = [[] for i=1:N_real]
 
@@ -273,24 +277,24 @@ for (index_v, v) in enumerate(Vs)
     if index_v==1
         t0 = time()
         sol = solve(ensembleprob, Rosenbrock23(autodiff=false), EnsembleThreads(),
-                          trajectories=2, abstol=1e-6, reltol=1e-3)
+                          trajectories=2, save_idxs=7,
+                          abstol=1e-6, reltol=1e-3)
         t1 = time()
         println("Time spent to solve first time : $(t1-t0) s")
 
     end
     t0 = time()
     sol = solve(ensembleprob, Rosenbrock23(autodiff=false), EnsembleThreads(),
-                      trajectories=N_real, abstol=1e-6, reltol=1e-3)
+                      trajectories=N_real, save_idxs=7,
+                      abstol=1e-6, reltol=1e-3)
     t1 = time()
     println("Time spent to solve realizations $(index_v)/$(N_v) : $(t1-t0) s")
     # @time sol = solve(ensembleprob, BS3(), EnsembleGPUArray(), trajectories=N_real)
     t0 = time()
     Threads.@threads for i in 1:N_real
         # what I would like
-        # Xs[i, :, :] .= sol[i].u
-        # Ts[i, :] .= sol[i].t
-        xs[i] = sol[i].u
-        ts[i] = sol[i].t
+        Xs[:, i] .= sol[i].u
+        Ts[:, i] .= sol[i].t
         v_perps[i] = sol[i].prob.p[1]
         local u0 = sol[i].prob.p[2]
         local u1 = sol[i].prob.p[3]
@@ -307,20 +311,17 @@ for (index_v, v) in enumerate(Vs)
         paths[i] = path
     end
     # Reformat xs as a proper multidimensional Array for easier indexing
-    Threads.@threads for i = 1:N_real
-        for j = 1:N_t
-            for k in 1:8
-                Xs[i, j, k] = xs[i][j][k]
-            end
-            Ts[i, j] = ts[i][j]
-        end
-    end
+    # Threads.@threads for i = 1:N_real
+    #     for j = 1:N_t
+    #         Xs[j, i] = xs[i][j]
+    #         Ts[j, i] = ts[i][j]
+    #     end
+    # end
     t1 = time()
     println("Time spent reformatting the output : $(t1-t0) s")
-    # define empty grid to accumulate the trajectories of the atoms and count them
-    grid = zeros(ComplexF64, (N_grid, N_grid))
-    counter_grid = zeros(Int32, (N_grid, N_grid))
-    function treat_coord!(i::Int64, coord::Array{Int32, 1}, iinit::Int32, jinit::Int32, grid::Array{ComplexF64, 2}, counter_grid::Array{Int32, 2})
+    function treat_coord!(i::Int64, coord::Array{Int32, 1}, iinit::Int32,
+                          jinit::Int32, grid::Array{ComplexF64, 2},
+                          counter_grid::Array{Int32, 2})
         if coord[1] > N_grid
             coord[1] = N_grid
         end
@@ -334,51 +335,30 @@ for (index_v, v) in enumerate(Vs)
             coord[2] = 1
         end
         tpath = hypot(coord[2]-iinit, coord[1]-jinit)*abs(window)/(v_perps[i]*N_grid)
-        grid[coord[2], coord[1]] += real(Xs[i, argmin(abs.(Ts[i, :] .- tpath)), 7])
+        grid[coord[2], coord[1]] += Xs[argmin(abs.(Ts[:, i] .- tpath)), i]
         counter_grid[coord[2], coord[1]] += 1
     end
 
     t0 = time()
+    global grid .= zeros(ComplexF64, (N_grid, N_grid))
     Threads.@threads for i = 1:N_real
         local iinit = paths[i][1][1]
         local jinit = paths[i][1][2]
-        # for coord in paths[i]
-        #     if coord[1] > N_grid
-        #         coord[1] = N_grid
-        #     end
-        #     if coord[2] > N_grid
-        #         coord[2] = N_grid
-        #     end
-        #     if coord[1] < 1
-        #         coord[1] = 1
-        #     end
-        #     if coord[2] < 1
-        #         coord[2] = 1
-        #     end
-        #     tpath = hypot(coord[2]-iinit, coord[1]-jinit)*abs(window)/(v_perps[i]*N_grid)
-        #     grid[coord[2], coord[1]] += real(Xs[i, argmin(abs.(Ts[i, :] .- tpath)), 7])
-        #     counter_grid[coord[2], coord[1]] += 1
-        # end
-        m_func(coord) = treat_coord!(i, coord, iinit, jinit, grid, counter_grid)
+        m_func(coord) = treat_coord!(i, coord, iinit, jinit, grid, counter_grid_total)
         map(m_func, paths[i])
-        # for coord in paths[i]
-        #     treat_coord!(i, coord, iinit, jinit, grid, counter_grid)
-        # end
-
     end
     t1 = time()
     println("Time spent to treat realizations : $(t1-t0) s")
-    grids[index_v, :, :] .= grid
-    counter_grids[index_v, :, :] .= counter_grid
+    grid_weighted .+= grid * pv[index_v]
 end
-weighted_grid = real.(grids).*pv
-pol = sum(weighted_grid, dims=1)
-total_counts = sum(counter_grids, dims=1)
-normalized = pol./total_counts
+# weighted_grid = real.(grids).*pv
+# pol = sum(weighted_grid, dims=1)
+# total_counts = sum(counter_grids, dims=1)
+normalized = real.(grid_weighted)./counter_grid_total
 println("Total time elapsed : $(time()-t_tot0) s")
 fig, ax = subplots(1, 2)
-ax[1].imshow(normalized[1, :, :])
-ax[2].imshow(total_counts[1, :, :])
+ax[1].imshow(normalized)
+ax[2].imshow(counter_grid_total)
 ax[1].set_title("Polarization")
 ax[2].set_title("Counts")
 show()
