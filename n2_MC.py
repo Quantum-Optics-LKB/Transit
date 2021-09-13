@@ -23,7 +23,9 @@ detun = -3e9  # detuning
 L = 10e-3  # cell length
 N_grid = 128
 N_v = 20
-N_real = 100
+v0 = 40.0
+v1 = 800.0
+N_real = 10000
 N_proc = 16
 
 
@@ -185,13 +187,13 @@ if __name__ == "__main__":
                             N_real=N_real, N_proc=N_proc)
     solver1 = temporal_bloch(T, 1e-9, waist, detun, L, N_grid=N_grid, N_v=N_v,
                              N_real=N_real, N_proc=N_proc)
-    renorm = run_sim(solver, plot=True)
+    renorm, counter = solver.do_V_span(v0, v1, N_v)
     plt.close('all')
-    renorm1 = run_sim(solver1, plot=False)
-    np.save(f'results/pols_long_highp_{N_v}_{N_real}_{time.ctime()}.npy', renorm)
-    np.save(f'results/pols_long_lowp_{N_v}_{N_real}_{time.ctime()}.npy', renorm)
-    chi3 = (renorm - renorm1)/solver.I
-    n0 = np.sqrt(1 + renorm1)
+    renorm1, counter_1 = solver1.do_V_span(v0, v1, N_v)
+    # np.save(f'results/pols_long_highp_{N_v}_{N_real}_{time.ctime()}.npy', renorm)
+    # np.save(f'results/pols_long_lowp_{N_v}_{N_real}_{time.ctime()}.npy', renorm)
+    chi3 = (np.real(renorm) - np.real(renorm1))/solver.I
+    n0 = np.sqrt(1 + np.real(renorm1))
     n2 = (3/(4*n0*cst.epsilon_0*cst.c))*chi3
     plt.imshow(n2, origin='lower', norm=colors.SymLogNorm(linthresh=1e-15, linscale=1,
                                               vmin=np.nanmin(n2), vmax=0, base=10))
