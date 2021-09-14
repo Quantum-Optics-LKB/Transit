@@ -5,10 +5,10 @@ using PyPlot
 
 t_tot0 = time()
 # global variables to be set from python side through Julia "Main" namespace
-const N_real = 5000
+const N_real = 100
 const N_grid = 128
 const N_t = 1000
-const N_v = 20
+const N_v = 3
 const T = 150+273
 const m87 = 1.44316060e-25
 const k_B = 1.38064852e-23
@@ -228,8 +228,8 @@ grid_weighted = zeros(ComplexF64, (N_grid, N_grid))
 normalized = zeros(Float64, (N_grid, N_grid))
 Vs = collect(LinRange{Float64}(v0, v1, N_v))
 pv = sqrt(2.0/pi)*((m87/(k_B*T))^(3.0/2.0)).*Vs.^2.0 .*exp.(-m87*Vs.^2.0/(2.0*k_B*T))
-Xs = zeros(ComplexF64, (N_t, N_real))
-Ts = zeros(Float64, (N_t, N_real))
+Xs = zeros(ComplexF64, (N_real, N_t))
+Ts = zeros(Float64, (N_real, N_t))
 v_perps = zeros(Float64, N_real)
 paths = [[] for i=1:N_real]
 # for convenience
@@ -299,8 +299,8 @@ for (index_v, v) in enumerate(Vs)
     # @time sol = solve(ensembleprob, BS3(), EnsembleGPUArray(), trajectories=N_real)
     t0 = time()
     Threads.@threads for i in 1:N_real
-        Xs[:, i] .= sol[i].u
-        Ts[:, i] .= sol[i].t
+        Xs[i, :] .= sol[i].u
+        Ts[i, :] .= sol[i].t
         v_perps[i] = sol[i].prob.p[1]
     end
 
@@ -322,7 +322,7 @@ for (index_v, v) in enumerate(Vs)
             coord[2] = 1
         end
         tpath = hypot(coord[2]-iinit, coord[1]-jinit)*abs(window)/(v_perps[i]*N_grid)
-        grid[coord[2], coord[1]] += Xs[argmin(abs.(Ts[:, i] .- tpath)), i]
+        grid[coord[2], coord[1]] += Xs[i, argmin(abs.(Ts[i, :] .- tpath))]
         counter_grid[coord[2], coord[1]] += 1
     end
 
