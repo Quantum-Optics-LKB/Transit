@@ -5,7 +5,7 @@ using PyPlot
 
 t_tot0 = time()
 # global variables to be set from python side through Julia "Main" namespace
-const N_real = 100
+const N_real = 10
 const N_grid = 128
 const N_t = 1000
 const N_v = 3
@@ -216,11 +216,6 @@ end
 end
 end
 
-
-#TODO directly put an accumulator array of size (N_grid, N_grid)
-# grids = zeros(ComplexF64, (N_v, N_grid, N_grid))
-# counter_grids = zeros(Int32, (N_v, N_grid, N_grid))
-# define empty grid to accumulate the trajectories of the atoms and count them
 grid = zeros(ComplexF64, (N_grid, N_grid))
 counter_grid = zeros(Int32, (N_grid, N_grid))
 counter_grid_total = zeros(Int32, (N_grid, N_grid))
@@ -238,6 +233,7 @@ Threads.@threads for i = 1:N_real
     iinit, jinit, ifinal, jfinal = choose_points()
     coords[i] = (iinit, jinit, ifinal, jfinal)
     paths[i] = bresenham(jinit, iinit, jfinal, ifinal)
+
 end
 for (index_v, v) in enumerate(Vs)
     function prob_func(prob, i, repeat)
@@ -330,8 +326,8 @@ for (index_v, v) in enumerate(Vs)
     global grid .= zeros(ComplexF64, (N_grid, N_grid))
     global counter_grid .= zeros(Int32, (N_grid, N_grid))
     Threads.@threads for i = 1:N_real
-        local iinit = paths[i][1][2]
-        local jinit = paths[i][1][1]
+        local iinit = coords[i][1]
+        local jinit = coords[i][1]
         m_func(coord) = treat_coord!(i, coord, iinit, jinit, grid, counter_grid)
         map(m_func, paths[i])
     end

@@ -8,7 +8,6 @@ from scipy.integrate import solve_ivp
 from numba import jit, cfunc, types, float64, complex128, void
 import sys
 from julia import Main
-# from diffeqpy import de
 
 @jit(nopython=True)
 def bresenham(x1, y1, x2, y2):
@@ -218,16 +217,14 @@ class temporal_bloch:
         self.N_grid = N_grid
         self.N_v = N_v
         self.N_real = N_real
-
         self.T = T
         self.L = L
         self.waist = waist
-        self.window = 2.5*self.waist
+        self.window = 4*self.waist
         self.r0 = self.window/2
         self.detun = 2*np.pi*detun
         self.puiss = puiss
         self.frac = 0.995
-
         self.wl = 780.241e-9
         self.k = 2*np.pi/self.wl
         self.Gamma = 2*np.pi * 6.065e6
@@ -241,23 +238,18 @@ class temporal_bloch:
         self.gamma32tilde = self.gamma - 1j*self.detun
         self.gamma31tilde = self.gamma - 1j*(self.detun-self.delta0)
         self.gamma21tilde = self.gamma_t + 1j*self.delta0
-
         self.I = 2*self.puiss/(np.pi*self.waist**2)
         self.E = np.sqrt(2*self.I/(c*epsilon_0))
-
-
         self.mu23 = (1/np.sqrt(5))*np.sqrt(1/18 + 5/18 + 7/9)*self.d + 1j*0
         self.mu13 = (1/np.sqrt(3))*np.sqrt(1/9 + 5/18 + 5/18)*self.d + 1j*0
         self.G1 = 3/8
         self.G2 = 5/8
         self.Omega23 = self.E*self.mu23/hbar
         self.Omega13 = self.E*self.mu13/hbar
-
         self.x0 = np.array([self.G1 + 1j*0, self.G2 + 1j*0, 0, 0, 0, 0, 0, 0],
                            dtype=np.complex128)
         self.x0_short = np.array([self.G1 + 1j*0, self.G2 + 1j*0, 0, 0],
                                  dtype=np.complex128)
-
         print(f"Omega23 = {np.real(self.Omega23)*1e-9/(2*np.pi)} GHz")
 
     def choose_points(self, plot=False):
@@ -347,6 +339,7 @@ class temporal_bloch:
         #     np.array(sol.u, dtype=np.complex128), path
 
     def do_N_real(self, v: float):
+
         Main.eval(f"const N_real = {self.N_real}")
         Main.eval(f"const N_grid = {self.N_grid}")
         Main.eval(f"const T = {self.T}")
@@ -567,6 +560,7 @@ class temporal_bloch:
         [grid, counter_grid]
         """)
         return grid, counter_grid
+
     def do_V_span(self, v0: float, v1: float, N_v: int):
         Main.eval(f"global N_v = {N_v}")
         Main.eval(f"global v0 = {v0}")
@@ -590,7 +584,7 @@ class temporal_bloch:
 
         const m87 = 1.44316060e-25
         const k_B = 1.38064852e-23
-        const N_t = 1000
+        const N_t = 2000
 
 
         function bresenham(x1::Int32, y1::Int32, x2::Int32, y2::Int32)::Array{Array{Int32, 1}, 1}
@@ -698,7 +692,7 @@ class temporal_bloch:
         @fastmath begin
         function f_jac!(J::Array{ComplexF64, 2}, x::Array{ComplexF64, 1},
                     p::Array{ComplexF64, 1}, t::Float64)
-            r_sq = (p[4]+p[2]*p[1]*t - p[13])^2 + (p[5]+p[3]*p[1]*t - p[13])^2
+            r_sq = (p[4]+p[2]*p[1]*t - p[13])^2.0 + (p[5]+p[3]*p[1]*t - p[13])^2.0
             Om23 = p[8] * exp(-r_sq/(2*p[12]*p[12]))
             Om13 = p[7] * exp(-r_sq/(2*p[12]*p[12]))
             J[1, 1] = (-p[6]/2.0)
@@ -769,11 +763,6 @@ class temporal_bloch:
         end
         end
 
-
-        #TODO directly put an accumulator array of size (N_grid, N_grid)
-        # grids = zeros(ComplexF64, (N_v, N_grid, N_grid))
-        # counter_grids = zeros(Int32, (N_v, N_grid, N_grid))
-        # define empty grid to accumulate the trajectories of the atoms and count them
         grid = zeros(ComplexF64, (N_grid, N_grid))
         counter_grid = zeros(Int32, (N_grid, N_grid))
         counter_grid_total = zeros(Int32, (N_grid, N_grid))
@@ -781,8 +770,8 @@ class temporal_bloch:
         normalized = zeros(Float64, (N_grid, N_grid))
         Vs = collect(LinRange{Float64}(v0, v1, N_v))
         pv = sqrt(2.0/pi)*((m87/(k_B*T))^(3.0/2.0)).*Vs.^2.0 .*exp.(-m87*Vs.^2.0/(2.0*k_B*T))
-        Xs = zeros(ComplexF64, (N_t, N_real))
-        Ts = zeros(Float64, (N_t, N_real))
+        Xs = zeros(ComplexF64, (N_real, N_t))
+        Ts = zeros(Float64, (N_real, N_t))
         v_perps = zeros(Float64, N_real)
         paths = [[] for i=1:N_real]
         # for convenience
@@ -816,19 +805,19 @@ class temporal_bloch:
                     new_tfinal = hypot((xfinal-xinit), (yfinal-yinit))/abs(vz)
                 end
                 new_p = ComplexF64[v_perp + 0.0*im, u0 + 0.0*im, u1 + 0.0*im,
-                         xinit + 0.0*im, yinit + 0.0*im,
-                         Gamma, Omega13, Omega23, gamma21tilde, gamma31tilde - im*k*vz,
-                         gamma32tilde - im*k*vz, waist, r0]
+                        xinit + 0.0*im, yinit + 0.0*im,
+                        Gamma, Omega13, Omega23, gamma21tilde, gamma31tilde - im*k*vz,
+                        gamma32tilde - im*k*vz, waist, r0]
                 new_tspan = (0.0, Float64(new_tfinal))
                 tsave = collect(LinRange{Float64}(0.0, Float64(new_tfinal), N_t))
                 remake(prob, p=new_p, tspan=new_tspan, saveat=tsave)
             end
             # instantiate a problem
             p = ComplexF64[1.0 + 0.0*im, 1.0 + 0.0*im, 1.0 + 0.0*im, 1.0 + 0.0*im, 1.0 + 0.0*im,
-                 Gamma, Omega13,
-                 Omega23, gamma21tilde,
-                 gamma31tilde - im*k*0.0,
-                 gamma32tilde - im*k*0.0, waist, r0]
+                Gamma, Omega13,
+                Omega23, gamma21tilde,
+                gamma31tilde - im*k*0.0,
+                gamma32tilde - im*k*0.0, waist, r0]
             tspan = (0.0, 1.0)
             tsave = collect(LinRange{Float64}(tspan[1], tspan[2], N_t))
             prob = ODEProblem{true}(f!, x0, tspan, p, jac=f_jac!, saveat=tsave)
@@ -837,31 +826,30 @@ class temporal_bloch:
             if index_v==1
                 t0 = time()
                 sol = solve(ensembleprob, Rodas4(autodiff=false), EnsembleThreads(),
-                                  trajectories=2, save_idxs=7,
-                                  abstol=1e-6, reltol=1e-3)
+                                trajectories=2, save_idxs=7,
+                                abstol=1e-6, reltol=1e-3)
                 t1 = time()
                 println("Time spent to solve first time : $(t1-t0) s")
 
             end
             t0 = time()
             sol = solve(ensembleprob, Rodas4(autodiff=false), EnsembleThreads(),
-                              trajectories=N_real, save_idxs=7,
-                              abstol=1e-6, reltol=1e-3)
+                            trajectories=N_real, save_idxs=7,
+                            abstol=1e-6, reltol=1e-3)
             t1 = time()
             println("Time spent to solve realizations $(index_v)/$(N_v) : $(t1-t0) s")
-            # @time sol = solve(ensembleprob, BS3(), EnsembleGPUArray(), trajectories=N_real)
             t0 = time()
             Threads.@threads for i in 1:N_real
-                Xs[:, i] .= sol[i].u
-                Ts[:, i] .= sol[i].t
+                Xs[i, :] .= sol[i].u
+                Ts[i, :] .= sol[i].t
                 v_perps[i] = sol[i].prob.p[1]
             end
 
             t1 = time()
             println("Time spent reformatting the output : $(t1-t0) s")
             function treat_coord!(i::Int64, coord::Array{Int32, 1}, iinit::Int32,
-                                  jinit::Int32, grid::Array{ComplexF64, 2},
-                                  counter_grid::Array{Int32, 2})
+                                jinit::Int32, grid::Array{ComplexF64, 2},
+                                counter_grid::Array{Int32, 2})
                 if coord[1] > N_grid
                     coord[1] = N_grid
                 end
@@ -875,7 +863,7 @@ class temporal_bloch:
                     coord[2] = 1
                 end
                 tpath = hypot(coord[2]-iinit, coord[1]-jinit)*abs(window)/(v_perps[i]*N_grid)
-                grid[coord[2], coord[1]] += Xs[argmin(abs.(Ts[:, i] .- tpath)), i]
+                grid[coord[2], coord[1]] += Xs[i, argmin(abs.(Ts[i, :] .- tpath))]
                 counter_grid[coord[2], coord[1]] += 1
             end
 
@@ -883,8 +871,8 @@ class temporal_bloch:
             global grid .= zeros(ComplexF64, (N_grid, N_grid))
             global counter_grid .= zeros(Int32, (N_grid, N_grid))
             Threads.@threads for i = 1:N_real
-                local iinit = paths[i][1][2]
-                local jinit = paths[i][1][1]
+                local iinit = coords[i][1]
+                local jinit = coords[i][2]
                 m_func(coord) = treat_coord!(i, coord, iinit, jinit, grid, counter_grid)
                 map(m_func, paths[i])
             end
