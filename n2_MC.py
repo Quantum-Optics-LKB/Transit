@@ -58,20 +58,24 @@ def main():
     # Ts = np.linspace(90, 150, 5)
     n2_w_T = np.empty((len(waists), N_grid, N_grid), dtype=np.float32)
     # np.save(f'results/Ts_{time.ctime()}.npy', Ts)
-    np.save(f'results/waists_{time.ctime()}.npy', waists)
+    # np.save(f'results/waists_{time.ctime()}.npy', waists)
     for counter_w, waist in enumerate(waists):
         print(f"Waist {counter_w+1}/{len(waists)}")
         solver = temporal_bloch(T, puiss, waist, detun, L, N_grid=N_grid,
                                 N_v=N_v, N_real=N_real, N_proc=N_proc)
         solver1 = temporal_bloch(T, 1e-9, waist, detun, L, N_grid=N_grid,
                                     N_v=N_v, N_real=N_real, N_proc=N_proc)
+        solver.window = 10e-3
+        solver.r0 = solver.window/2
+        solver1.window = 10e-3
+        solver1.r0 = solver1.window/2
         renorm, counter = solver.do_V_span(v0, v1, N_v)
         renorm1, counter_1 = solver1.do_V_span(v0, v1, N_v)
         chi3 = (np.real(renorm) - np.real(renorm1))/solver.I
         n0 = np.sqrt(1 + renorm1)
         n2 = (3/(4*n0*cst.epsilon_0*cst.c))*chi3
         n2_w_T[counter_w, :, :] = n2
-        np.save(f'results/n2_w_{time.ctime()}.npy', n2)
+        # np.save(f'results/n2_w_{time.ctime()}.npy', n2)
 
 
 

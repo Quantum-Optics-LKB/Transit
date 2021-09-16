@@ -5,10 +5,9 @@ using PyPlot
 
 t_tot0 = time()
 # global variables to be set from python side through Julia "Main" namespace
-const N_real = 10
+const N_real = 10000
 const N_grid = 128
-const N_t = 1000
-const N_v = 3
+const N_v = 20
 const T = 150+273
 const m87 = 1.44316060e-25
 const k_B = 1.38064852e-23
@@ -75,7 +74,7 @@ function bresenham(x1::Int32, y1::Int32, x2::Int32, y2::Int32)::Array{Array{Int3
     # Iterate over bounding box generating points between start and end
     y = y1
     points = []
-    for x in x1:x2+1
+    for x in x1:x2
         if is_steep
             coord = [y, x]
         else
@@ -223,25 +222,24 @@ grid_weighted = zeros(ComplexF64, (N_grid, N_grid))
 normalized = zeros(Float64, (N_grid, N_grid))
 Vs = collect(LinRange{Float64}(v0, v1, N_v))
 pv = sqrt(2.0/pi)*((m87/(k_B*T))^(3.0/2.0)).*Vs.^2.0 .*exp.(-m87*Vs.^2.0/(2.0*k_B*T))
-Xs = zeros(ComplexF64, (N_real, N_t))
-Ts = zeros(Float64, (N_real, N_t))
 v_perps = zeros(Float64, N_real)
-paths = [[] for i=1:N_real]
-# for convenience
 global coords = Array{Tuple{Int32, Int32, Int32, Int32}}(undef, N_real)
-Threads.@threads for i = 1:N_real
-    iinit, jinit, ifinal, jfinal = choose_points()
-    coords[i] = (iinit, jinit, ifinal, jfinal)
-    paths[i] = bresenham(jinit, iinit, jfinal, ifinal)
 
-end
 for (index_v, v) in enumerate(Vs)
+    paths = [[] for i=1:N_real]
+    tpaths = [[] for i=1:N_real]
+    # Choose points in advance to save only the relevant points during solving
+    Threads.@threads for i = 1:N_real
+        iinit, jinit, ifinal, jfinal = choose_points()
+        coords[i] = (iinit, jinit, ifinal, jfinal)
+        paths[i] = bresenham(jinit, iinit, jfinal, ifinal)
+        v_perps[i] = sqrt(v^2.0 - draw_vz(v)^2.0)
+        tpaths[i] = Float64[hypot(coord[2]-iinit, coord[1]-jinit)*abs(window)/(v_perps[i]*N_grid) for coord in paths[i]]
+    end
     function prob_func(prob, i, repeat)
-        # change seed of random number generation as the solver uses multithreading
         iinit, jinit, ifinal, jfinal = coords[i]
-        # iinit, jinit, ifinal, jfinal = choose_points()
-        vz = draw_vz(v)
-        v_perp = sqrt(v^2.0 - vz^2.0)
+        v_perp = v_perps[i]
+        vz = sqrt(v^2.0 - v_perp^2.0)
         xinit = jinit*window/N_grid
         yinit = iinit*window/N_grid
         xfinal = jfinal*window/N_grid
@@ -253,19 +251,19 @@ for (index_v, v) in enumerate(Vs)
             norm = hypot(u0, u1)
             u0 /= norm
             u1 /= norm
-            new_tfinal = hypot((xfinal-xinit), (yfinal-yinit))/v_perp
         else
             u0 = u1 = 0
-            new_tfinal = hypot((xfinal-xinit), (yfinal-yinit))/abs(vz)
         end
         new_p = ComplexF64[v_perp + 0.0*im, u0 + 0.0*im, u1 + 0.0*im,
                  xinit + 0.0*im, yinit + 0.0*im,
                  Gamma, Omega13, Omega23, gamma21tilde, gamma31tilde - im*k*vz,
                  gamma32tilde - im*k*vz, waist, r0]
-        new_tspan = (0.0, Float64(new_tfinal))
-        tsave = collect(LinRange{Float64}(0.0, Float64(new_tfinal), N_t))
+        
+        tsave = tpaths[i]
+        new_tspan = (0.0, maximum(tpaths[i]))
         remake(prob, p=new_p, tspan=new_tspan, saveat=tsave)
     end
+
     # instantiate a problem
     p = ComplexF64[1.0 + 0.0*im, 1.0 + 0.0*im, 1.0 + 0.0*im, 1.0 + 0.0*im, 1.0 + 0.0*im,
          Gamma, Omega13,
@@ -273,13 +271,13 @@ for (index_v, v) in enumerate(Vs)
          gamma31tilde - im*k*0.0,
          gamma32tilde - im*k*0.0, waist, r0]
     tspan = (0.0, 1.0)
-    tsave = collect(LinRange{Float64}(tspan[1], tspan[2], N_t))
+    tsave = collect(LinRange{Float64}(tspan[1], tspan[2], 2))
     prob = ODEProblem{true}(f!, x0, tspan, p, jac=f_jac!, saveat=tsave)
     ensembleprob = EnsembleProblem(prob, prob_func=prob_func)
     # run once on small system to try and speed up compile time
     if index_v==1
         t0 = time()
-        sol = solve(ensembleprob, Rodas4(autodiff=false), EnsembleThreads(),
+        sol = solve(ensembleprob, TRBDF2(autodiff=false), EnsembleThreads(),
                           trajectories=2, save_idxs=7,
                           abstol=1e-6, reltol=1e-3)
         t1 = time()
@@ -287,54 +285,28 @@ for (index_v, v) in enumerate(Vs)
 
     end
     t0 = time()
-    sol = solve(ensembleprob, Rodas4(autodiff=false), EnsembleThreads(),
+    sol = solve(ensembleprob, TRBDF2(autodiff=false), EnsembleThreads(),
                       trajectories=N_real, save_idxs=7,
                       abstol=1e-6, reltol=1e-3)
     t1 = time()
     println("Time spent to solve realizations $(index_v)/$(N_v) : $(t1-t0) s")
-    # @time sol = solve(ensembleprob, BS3(), EnsembleGPUArray(), trajectories=N_real)
-    t0 = time()
-    Threads.@threads for i in 1:N_real
-        Xs[i, :] .= sol[i].u
-        Ts[i, :] .= sol[i].t
-        v_perps[i] = sol[i].prob.p[1]
-    end
-
-    t1 = time()
-    println("Time spent reformatting the output : $(t1-t0) s")
-    function treat_coord!(i::Int64, coord::Array{Int32, 1}, iinit::Int32,
-                          jinit::Int32, grid::Array{ComplexF64, 2},
-                          counter_grid::Array{Int32, 2})
-        if coord[1] > N_grid
-            coord[1] = N_grid
-        end
-        if coord[2] > N_grid
-            coord[2] = N_grid
-        end
-        if coord[1] < 1
-            coord[1] = 1
-        end
-        if coord[2] < 1
-            coord[2] = 1
-        end
-        tpath = hypot(coord[2]-iinit, coord[1]-jinit)*abs(window)/(v_perps[i]*N_grid)
-        grid[coord[2], coord[1]] += Xs[i, argmin(abs.(Ts[i, :] .- tpath))]
-        counter_grid[coord[2], coord[1]] += 1
-    end
 
     t0 = time()
     global grid .= zeros(ComplexF64, (N_grid, N_grid))
     global counter_grid .= zeros(Int32, (N_grid, N_grid))
+    @inbounds begin
     Threads.@threads for i = 1:N_real
-        local iinit = coords[i][1]
-        local jinit = coords[i][1]
-        m_func(coord) = treat_coord!(i, coord, iinit, jinit, grid, counter_grid)
-        map(m_func, paths[i])
+        for (j, coord) in enumerate(paths[i])
+            grid[coord[2], coord[1]] += sol[i].u[j]
+            counter_grid[coord[2], coord[1]] += 1
+        end
+    end
     end
     t1 = time()
     println("Time spent to treat realizations : $(t1-t0) s")
     grid_weighted .+= (grid./counter_grid) * pv[index_v]
     counter_grid_total .+= counter_grid
+    
 end
 
 pol = real.(grid_weighted)
