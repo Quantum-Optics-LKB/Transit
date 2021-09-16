@@ -2,8 +2,8 @@ using OrdinaryDiffEq
 # using DiffEqGPU, OrdinaryDiffEq
 # # for GPU try only with cuArrays in Float64 precision
 using PyPlot
+using ProgressBars
 
-t_tot0 = time()
 # global variables to be set from python side through Julia "Main" namespace
 const N_real = 10000
 const N_grid = 128
@@ -224,8 +224,7 @@ Vs = collect(LinRange{Float64}(v0, v1, N_v))
 pv = sqrt(2.0/pi)*((m87/(k_B*T))^(3.0/2.0)).*Vs.^2.0 .*exp.(-m87*Vs.^2.0/(2.0*k_B*T))
 v_perps = zeros(Float64, N_real)
 global coords = Array{Tuple{Int32, Int32, Int32, Int32}}(undef, N_real)
-
-for (index_v, v) in enumerate(Vs)
+for (index_v, v) in ProgressBar(enumerate(Vs))
     paths = [[] for i=1:N_real]
     tpaths = [[] for i=1:N_real]
     # Choose points in advance to save only the relevant points during solving
@@ -260,7 +259,7 @@ for (index_v, v) in enumerate(Vs)
                  gamma32tilde - im*k*vz, waist, r0]
         
         tsave = tpaths[i]
-        new_tspan = (0.0, maximum(tpaths[i]))
+        new_tspan = (0.0, maximum(tsave))
         remake(prob, p=new_p, tspan=new_tspan, saveat=tsave)
     end
 
@@ -276,22 +275,13 @@ for (index_v, v) in enumerate(Vs)
     ensembleprob = EnsembleProblem(prob, prob_func=prob_func)
     # run once on small system to try and speed up compile time
     if index_v==1
-        t0 = time()
         sol = solve(ensembleprob, TRBDF2(autodiff=false), EnsembleThreads(),
-                          trajectories=2, save_idxs=7,
-                          abstol=1e-6, reltol=1e-3)
-        t1 = time()
-        println("Time spent to solve first time : $(t1-t0) s")
+                          trajectories=2, save_idxs=7)
 
     end
-    t0 = time()
     sol = solve(ensembleprob, TRBDF2(autodiff=false), EnsembleThreads(),
-                      trajectories=N_real, save_idxs=7,
-                      abstol=1e-6, reltol=1e-3)
-    t1 = time()
-    println("Time spent to solve realizations $(index_v)/$(N_v) : $(t1-t0) s")
+                      trajectories=N_real, save_idxs=7)
 
-    t0 = time()
     global grid .= zeros(ComplexF64, (N_grid, N_grid))
     global counter_grid .= zeros(Int32, (N_grid, N_grid))
     @inbounds begin
@@ -302,15 +292,12 @@ for (index_v, v) in enumerate(Vs)
         end
     end
     end
-    t1 = time()
-    println("Time spent to treat realizations : $(t1-t0) s")
     grid_weighted .+= (grid./counter_grid) * pv[index_v]
     counter_grid_total .+= counter_grid
     
 end
 
 pol = real.(grid_weighted)
-println("Total time elapsed : $(time()-t_tot0) s")
 fig, ax = subplots(1, 2)
 ax[1].imshow(pol)
 ax[2].imshow(counter_grid_total)

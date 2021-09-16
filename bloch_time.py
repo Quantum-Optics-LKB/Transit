@@ -581,6 +581,7 @@ class temporal_bloch:
         Main.eval(f"global k = {self.k}")
         grid_weighted, counter_grid = Main.eval("""
         using OrdinaryDiffEq
+        using ProgressBars
 
         const m87 = 1.44316060e-25
         const k_B = 1.38064852e-23
@@ -773,7 +774,7 @@ class temporal_bloch:
         v_perps = zeros(Float64, N_real)
         global coords = Array{Tuple{Int32, Int32, Int32, Int32}}(undef, N_real)
 
-        for (index_v, v) in enumerate(Vs)
+        for (index_v, v) in ProgressBar(enumerate(Vs))
             paths = [[] for i=1:N_real]
             tpaths = [[] for i=1:N_real]
             # Choose points in advance to save only the relevant points during solving
@@ -824,22 +825,11 @@ class temporal_bloch:
             ensembleprob = EnsembleProblem(prob, prob_func=prob_func)
             # run once on small system to try and speed up compile time
             if index_v==1
-                t0 = time()
                 sol = solve(ensembleprob, TRBDF2(autodiff=false), EnsembleThreads(),
-                                trajectories=2, save_idxs=7,
-                                abstol=1e-6, reltol=1e-3)
-                t1 = time()
-                println("Time spent to solve first time : $(t1-t0) s")
-
+                                trajectories=2, save_idxs=7)
             end
-            t0 = time()
             sol = solve(ensembleprob, TRBDF2(autodiff=false), EnsembleThreads(),
-                            trajectories=N_real, save_idxs=7,
-                            abstol=1e-6, reltol=1e-3)
-            t1 = time()
-            println("Time spent to solve realizations $(index_v)/$(N_v) : $(t1-t0) s")
-
-            t0 = time()
+                            trajectories=N_real, save_idxs=7)
             global grid .= zeros(ComplexF64, (N_grid, N_grid))
             global counter_grid .= zeros(Int32, (N_grid, N_grid))
             @inbounds begin
@@ -850,8 +840,6 @@ class temporal_bloch:
                 end
             end
             end
-            t1 = time()
-            println("Time spent to treat realizations : $(t1-t0) s")
             grid_weighted .+= (grid./counter_grid) * pv[index_v]
             counter_grid_total .+= counter_grid
             
