@@ -72,7 +72,7 @@ def main():
         renorm, counter = solver.do_V_span(v0, v1, N_v)
         renorm1, counter_1 = solver1.do_V_span(v0, v1, N_v)
         chi3 = (np.real(renorm) - np.real(renorm1))/solver.I
-        n0 = np.sqrt(1 + renorm1)
+        n0 = np.sqrt(1 + np.real(renorm1))
         n2 = (3/(4*n0*cst.epsilon_0*cst.c))*chi3
         n2_w_T[counter_w, :, :] = n2
         # np.save(f'results/n2_w_{time.ctime()}.npy', n2)
