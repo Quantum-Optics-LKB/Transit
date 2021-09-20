@@ -14,7 +14,7 @@ from multiprocessing import Pool
 import progressbar
 # from numba import jit
 from functools import partial
-
+from scipy.optimize import curve_fit
 
 T = 150+273  # cell temp
 puiss = 250e-3  # power in W
@@ -25,7 +25,7 @@ N_grid = 128
 N_v = 20
 v0 = 40.0
 v1 = 800.0
-N_real = 5000
+N_real = 10000
 N_proc = 16
 
 def main():
@@ -63,7 +63,7 @@ def main():
 
     # plt.show()
     waists = np.linspace(50e-6, 2e-3, 10)
-    powers = np.linspace(50e-3, 1.5, 10)
+    powers = np.linspace(50e-3, 1, 20)
     waists_murad = np.asarray([0.054e-3, 8.350e-4, 9.400e-05, 2.050e-04, 3.680e-04, 8.900e-04, 0.00130,
                                0.00186, 0.00390, 0.00250], dtype=np.float64)
     n2_murad = np.asarray([1.466451787760415e-10, 6.146519158111747e-09, 4.648785173881415e-10,
@@ -114,44 +114,91 @@ def main():
     # ax1.set_xlabel("waist in mm")
     # ax1.set_ylabel("abs(n2) in $m^{2} / W$")
     # plt.show()
-    fig, ax = plt.subplots(2, 5)
+    ## Waist run
+    # fig, ax = plt.subplots(2, 5)
+    # fig1, ax1 = plt.subplots()
+    # n2_w_murad = np.empty((len(waists_murad), N_grid, N_grid), dtype=np.float64)
+    # n2_center = np.empty(len(waists_murad), dtype=np.float64)
+    # for counter_w, waist in enumerate(waists_murad):
+    #     print(f"Waist {counter_w+1}/{len(waists)}")
+    #     solver = temporal_bloch(T, puiss, waist, detun, L, N_grid=N_grid,
+    #                             N_v=N_v, N_real=N_real, N_proc=N_proc)
+    #     solver1 = temporal_bloch(T, 1e-9, waist, detun, L, N_grid=N_grid,
+    #                                 N_v=N_v, N_real=N_real, N_proc=N_proc)
+    #     solver.window = 10*waist
+    #     solver.r0 = solver.window/2
+    #     solver1.window = solver.window
+    #     solver1.r0 = solver.r0
+    #     renorm, counter = solver.do_V_span(v0, v1, N_v)
+    #     renorm1, counter_1 = solver1.do_V_span(v0, v1, N_v)
+    #     chi3 = (np.real(renorm) - np.real(renorm1))/solver.I
+    #     n0 = np.sqrt(1 + np.real(renorm1))
+    #     n2 = (3/(4*n0*cst.epsilon_0*cst.c))*chi3
+    #     avg_zone = 10
+    #     n2_c = np.mean(n2[N_grid//2-avg_zone:N_grid//2+avg_zone,
+    #                         N_grid//2-avg_zone:N_grid//2+avg_zone])
+    #     n2_w_murad[counter_w, :, :] = n2
+    #     # np.save(f'results/n2_w{counter_w}_murad_{start_time}.npy', n2)
+    #     n2_center[counter_w] = n2_c
+    # # np.save(f"results/n2_center_w_P_{start_time}.npy", n2_center)
+    # for counter_w, waist in enumerate(waists_murad):
+    #     im = ax[counter_w//5, counter_w%5].imshow(np.abs(n2_w_murad[counter_w, :, :]),
+    #                                               vmin=np.nanmin(np.abs(n2_w_murad)),
+    #                                               vmax=np.nanmax(np.abs(n2_w_murad)))
+    #     ax[counter_w//5, counter_w%5].set_title("$w_{0}$ = "+
+    #                                             f"{np.round(waist*1e3, decimals=2)} mm")
+    #     fig.colorbar(im, ax=ax[counter_w//5, counter_w%5])
+    # ax1.scatter(waists_murad*1e3, np.abs(n2_center))
+    # ax1.scatter(waists_murad*1e3, n2_murad, marker='x')
+    # ax1.legend(["Computed", "Murad data"])
+    # ax1.set_title("n2 vs waist")
+    # ax1.set_xlabel("waist in mm")
+    # ax1.set_ylabel("abs(n2) in $m^{2} / W$")
+    # plt.show()
+    ## Power run
+    fig, ax = plt.subplots(4, 5)
     fig1, ax1 = plt.subplots()
-    n2_w_murad = np.empty((len(waists_murad), N_grid, N_grid), dtype=np.float64)
-    n2_center = np.empty(len(waists_murad), dtype=np.float64)
-    for counter_w, waist in enumerate(waists_murad):
-        print(f"Waist {counter_w+1}/{len(waists)}")
-        solver = temporal_bloch(T, puiss, waist, detun, L, N_grid=N_grid,
+    n2_P_murad = np.empty((len(powers), N_grid, N_grid), dtype=np.float64)
+    n2_center = np.empty(len(powers), dtype=np.float64)
+    solver1 = temporal_bloch(T, 1e-9, waists_murad[6], detun, L, N_grid=N_grid,
                                 N_v=N_v, N_real=N_real, N_proc=N_proc)
-        solver1 = temporal_bloch(T, 1e-9, waist, detun, L, N_grid=N_grid,
-                                    N_v=N_v, N_real=N_real, N_proc=N_proc)
-        solver.window = 10*waist
-        solver.r0 = solver.window/2
-        solver1.window = solver.window
-        solver1.r0 = solver.r0
+    solver1.window = 10*waists_murad[6]
+    solver1.r0 = solver1.window/2
+    renorm1, counter_1 = solver1.do_V_span(v0, v1, N_v)
+    for counter_p, power in enumerate(powers):
+        print(f"Power {counter_p+1}/{len(powers)}")
+        solver = temporal_bloch(T, power, waists_murad[6], detun, L, N_grid=N_grid,
+                                N_v=N_v, N_real=N_real, N_proc=N_proc)
+        solver.window = solver1.window
+        solver.r0 = solver1.r0
         renorm, counter = solver.do_V_span(v0, v1, N_v)
-        renorm1, counter_1 = solver1.do_V_span(v0, v1, N_v)
         chi3 = (np.real(renorm) - np.real(renorm1))/solver.I
         n0 = np.sqrt(1 + np.real(renorm1))
         n2 = (3/(4*n0*cst.epsilon_0*cst.c))*chi3
-        avg_zone = 10
+        avg_zone = 5
         n2_c = np.mean(n2[N_grid//2-avg_zone:N_grid//2+avg_zone,
                             N_grid//2-avg_zone:N_grid//2+avg_zone])
-        n2_w_murad[counter_w, :, :] = n2
+        n2_P_murad[counter_p, :, :] = n2
         # np.save(f'results/n2_w{counter_w}_murad_{start_time}.npy', n2)
-        n2_center[counter_w] = n2_c
+        n2_center[counter_p] = n2_c
     # np.save(f"results/n2_center_w_P_{start_time}.npy", n2_center)
-    for counter_w, waist in enumerate(waists_murad):
-        im = ax[counter_w//5, counter_w%5].imshow(np.abs(n2_w_murad[counter_w, :, :]),
-                                                  vmin=np.nanmin(np.abs(n2_w_murad)),
-                                                  vmax=np.nanmax(np.abs(n2_w_murad)))
-        ax[counter_w//5, counter_w%5].set_title("$w_{0}$ = "+
-                                                f"{np.round(waist*1e3, decimals=2)} mm")
-        fig.colorbar(im, ax=ax[counter_w//5, counter_w%5])
-    ax1.scatter(waists_murad*1e3, np.abs(n2_center))
-    ax1.scatter(waists_murad*1e3, n2_murad, marker='x')
-    ax1.legend(["Computed", "Murad data"])
-    ax1.set_title("n2 vs waist")
-    ax1.set_xlabel("waist in mm")
+    for counter_p, power in enumerate(powers):
+        im = ax[counter_p//5, counter_p%5].imshow(np.abs(n2_P_murad[counter_p, :, :]),
+                                                  vmin=np.nanmin(np.abs(n2_P_murad)),
+                                                  vmax=np.nanmax(np.abs(n2_P_murad)))
+        ax[counter_p//5, counter_p%5].set_title("$P_{0}$ = "+
+                                                f"{np.round(power*1e3, decimals=2)} mW")
+        fig.colorbar(im, ax=ax[counter_p//5, counter_p%5])
+    def fit_Isat(P, Isat, n2_0):
+        I = P/waists_murad[6]
+        return n2_0/(1+I/Isat)
+    # popt, pcov = curve_fit(fit_Isat, powers, n2_center)
+    # print(popt)
+    ax1.scatter(powers*1e3, np.abs(n2_center))
+    # ax1.plot(powers*1e3, fit_Isat(powers, popt[0], popt[1]))
+    # ax1.legend(["Computed", "Fit"])
+    ax1.set_title("n2 vs power")
+    ax1.set_xlabel("Power in mW")
     ax1.set_ylabel("abs(n2) in $m^{2} / W$")
     plt.show()
 if __name__ == "__main__":
