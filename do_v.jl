@@ -5,9 +5,9 @@ using PyPlot
 using ProgressBars
 
 # global variables to be set from python side through Julia "Main" namespace
-const N_real = 10000
+const N_real = 10
 const N_grid = 128
-const N_v = 20
+const N_v = 2
 const T = 150+273
 const m87 = 1.44316060e-25
 const k_B = 1.38064852e-23
@@ -225,8 +225,8 @@ pv = sqrt(2.0/pi)*((m87/(k_B*T))^(3.0/2.0)).*Vs.^2.0 .*exp.(-m87*Vs.^2.0/(2.0*k_
 v_perps = zeros(Float64, N_real)
 global coords = Array{Tuple{Int32, Int32, Int32, Int32}}(undef, N_real)
 for (index_v, v) in ProgressBar(enumerate(Vs))
-    paths = [[] for i=1:N_real]
-    tpaths = [[] for i=1:N_real]
+    global paths = [[] for i=1:N_real]
+    global tpaths = [[] for i=1:N_real]
     # Choose points in advance to save only the relevant points during solving
     Threads.@threads for i = 1:N_real
         iinit, jinit, ifinal, jfinal = choose_points()
@@ -257,10 +257,8 @@ for (index_v, v) in ProgressBar(enumerate(Vs))
                  xinit + 0.0*im, yinit + 0.0*im,
                  Gamma, Omega13, Omega23, gamma21tilde, gamma31tilde - im*k*vz,
                  gamma32tilde - im*k*vz, waist, r0]
-        
-        tsave = tpaths[i]
-        new_tspan = (0.0, maximum(tsave))
-        remake(prob, p=new_p, tspan=new_tspan, saveat=tsave)
+        remake(prob, p=new_p, tspan=(0.0, maximum(tpaths[i])), saveat=tpaths[i])
+
     end
 
     # instantiate a problem

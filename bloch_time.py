@@ -807,10 +807,8 @@ class temporal_bloch:
                         xinit + 0.0*im, yinit + 0.0*im,
                         Gamma, Omega13, Omega23, gamma21tilde, gamma31tilde - im*k*vz,
                         gamma32tilde - im*k*vz, waist, r0]
-                
-                tsave = tpaths[i]
-                new_tspan = (0.0, maximum(tpaths[i]))
-                remake(prob, p=new_p, tspan=new_tspan, saveat=tsave)
+                remake(prob, p=new_p, tspan=(0.0, maximum(tpaths[i])), saveat=tpaths[i])
+
             end
 
             # instantiate a problem
