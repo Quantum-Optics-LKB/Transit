@@ -5,7 +5,7 @@ using PyPlot
 using ProgressBars
 
 # global variables to be set from python side through Julia "Main" namespace
-const N_real = 10
+const N_real = 10000
 const N_grid = 128
 const N_v = 2
 const T = 150+273
@@ -18,8 +18,8 @@ const gamma21tilde = 321033.05667335045+42939288389.26529*im
 const gamma31tilde = 46564466.011063695+61788844310.80405*im
 const gamma32tilde = 46564466.011063695+18849555921.538757*im
 const waist = 1.0e-3 + 0.0*im
-const r0 = 1.5*waist
-const window = 3.0*waist
+const window = 10.0*waist
+const r0 = window/2
 const x0 = ComplexF64[5/8 + 0.0*im, 3/8 + 0.0*im, 0.0 + 0.0*im,
                       0.0 + 0.0*im, 0.0 + 0.0*im, 0.0 + 0.0*im,
                       0.0 + 0.0*im, 0.0+ 0.0*im]
@@ -89,7 +89,7 @@ function bresenham(x1::Int32, y1::Int32, x2::Int32, y2::Int32)::Array{Array{Int3
     end
     # Reverse the list if the coordinates were swapped
     if swapped
-        reverse(points)
+        reverse!(points)
     end
     return points
 end
@@ -233,7 +233,7 @@ for (index_v, v) in ProgressBar(enumerate(Vs))
         coords[i] = (iinit, jinit, ifinal, jfinal)
         paths[i] = bresenham(jinit, iinit, jfinal, ifinal)
         v_perps[i] = sqrt(v^2.0 - draw_vz(v)^2.0)
-        tpaths[i] = Float64[hypot(coord[2]-iinit, coord[1]-jinit)*abs(window)/(v_perps[i]*N_grid) for coord in paths[i]]
+        tpaths[i] = sort(Float64[hypot(coord[2]-iinit, coord[1]-jinit)*abs(window)/(v_perps[i]*N_grid) for coord in paths[i]])
     end
     function prob_func(prob, i, repeat)
         iinit, jinit, ifinal, jfinal = coords[i]
@@ -279,7 +279,6 @@ for (index_v, v) in ProgressBar(enumerate(Vs))
     end
     sol = solve(ensembleprob, TRBDF2(autodiff=false), EnsembleThreads(),
                       trajectories=N_real, save_idxs=7)
-
     global grid .= zeros(ComplexF64, (N_grid, N_grid))
     global counter_grid .= zeros(Int32, (N_grid, N_grid))
     @inbounds begin
@@ -290,7 +289,8 @@ for (index_v, v) in ProgressBar(enumerate(Vs))
         end
     end
     end
-    grid_weighted .+= (grid./counter_grid) * pv[index_v]
+    # grid_weighted .+= (grid./counter_grid) * pv[index_v]
+    grid_weighted .+= grid * pv[index_v]
     counter_grid_total .+= counter_grid
     
 end

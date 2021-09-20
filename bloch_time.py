@@ -638,7 +638,7 @@ class temporal_bloch:
             end
             # Reverse the list if the coordinates were swapped
             if swapped
-                reverse(points)
+                reverse!(points)
             end
             return points
         end
