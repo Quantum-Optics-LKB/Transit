@@ -224,6 +224,8 @@ class temporal_bloch:
         self.r0 = self.window/2
         self.detun = 2*np.pi*detun
         self.puiss = puiss
+        self.I = 2*self.puiss/(np.pi*self.waist**2)
+        self.E = np.sqrt(2*self.I/(c*epsilon_0))
         self.frac = 0.995
         self.wl = 780.241e-9
         self.k = 2*np.pi/self.wl
@@ -232,14 +234,13 @@ class temporal_bloch:
         self.m85 = 1.44316060e-25 - 2*m_n
         self.u = np.sqrt(2*Boltzmann*T/(self.frac*self.m87+(1-self.frac)*self.m85))
         self.d = np.sqrt(9*epsilon_0*hbar*self.Gamma* self.wl**3/(8*np.pi**2))
-        self.gamma_t = self.u/self.waist *2/np.sqrt(np.pi) #formule à compléter!
+        self.gamma_t_analytical = self.u/self.waist *2/np.sqrt(np.pi) #formule à compléter!
+        self.gamma_t = 0.0
         self.gamma = self.Gamma/2 + self.gamma_t + beta_n(self.T)/2
         self.delta0 = 2*np.pi * 6.834e9
         self.gamma32tilde = self.gamma - 1j*self.detun
         self.gamma31tilde = self.gamma - 1j*(self.detun-self.delta0)
         self.gamma21tilde = self.gamma_t + 1j*self.delta0
-        self.I = 2*self.puiss/(np.pi*self.waist**2)
-        self.E = np.sqrt(2*self.I/(c*epsilon_0))
         self.mu23 = (1/np.sqrt(5))*np.sqrt(1/18 + 5/18 + 7/9)*self.d + 1j*0
         self.mu13 = (1/np.sqrt(3))*np.sqrt(1/9 + 5/18 + 5/18)*self.d + 1j*0
         self.G1 = 3/8
@@ -339,7 +340,6 @@ class temporal_bloch:
         #     np.array(sol.u, dtype=np.complex128), path
 
     def do_N_real(self, v: float):
-
         Main.eval(f"const N_real = {self.N_real}")
         Main.eval(f"const N_grid = {self.N_grid}")
         Main.eval(f"const T = {self.T}")
@@ -413,7 +413,7 @@ class temporal_bloch:
             end
             # Reverse the list if the coordinates were swapped
             if swapped
-                reverse(points)
+                reverse!(points)
             end
             return points
         end
@@ -560,6 +560,14 @@ class temporal_bloch:
         [grid, counter_grid]
         """)
         return grid, counter_grid
+
+    def chi_analytical(self):
+        a = (self.Gamma+self.gamma_t_analytical)/2*self.gamma
+        b = self.gamma_t_analytical/self.gamma
+        Es = np.sqrt((2*b*(1+a))/(1+b))*hbar*self.gamma/self.mu23
+        pref = self.G2*N(self.T)/(epsilon_0*hbar) * abs(self.mu23)**2/self.gamma
+        chi = pref * (1j-self.detun/self.gamma)/(1+(self.detun/self.gamma)**2 + (self.E/Es)**2)
+        return chi
 
     def do_V_span(self, v0: float, v1: float, N_v: int):
         Main.eval(f"global N_v = {N_v}")
@@ -821,13 +829,23 @@ class temporal_bloch:
             tsave = collect(LinRange{Float64}(tspan[1], tspan[2], 2))
             prob = ODEProblem{true}(f!, x0, tspan, p, jac=f_jac!, saveat=tsave)
             ensembleprob = EnsembleProblem(prob, prob_func=prob_func)
+            # select appropriate solver
+            if abs(waist) > 0.75e-3
+                alg = Rodas4P(autodiff=false)
+                atol = 1e-6
+                rtol = 1e-5
+            else
+                alg = TRBDF2(autodiff=false)
+                atol = 1e-6
+                rtol = 1e-3
+            end
             # run once on small system to try and speed up compile time
             if index_v==1
-                sol = solve(ensembleprob, TRBDF2(autodiff=false), EnsembleThreads(),
-                                trajectories=2, save_idxs=7)
+                sol = solve(ensembleprob, alg, EnsembleThreads(),
+                                trajectories=2, save_idxs=7, abstol=atol, reltol=rtol)
             end
-            sol = solve(ensembleprob, TRBDF2(autodiff=false), EnsembleThreads(),
-                            trajectories=N_real, save_idxs=7)
+            sol = solve(ensembleprob, alg, EnsembleThreads(),
+                            trajectories=N_real, save_idxs=7, abstol=atol, reltol=rtol)
             global grid .= zeros(ComplexF64, (N_grid, N_grid))
             global counter_grid .= zeros(Int32, (N_grid, N_grid))
             @inbounds begin
@@ -838,7 +856,7 @@ class temporal_bloch:
                 end
             end
             end
-            grid_weighted .+= (grid./counter_grid) * pv[index_v]
+            grid_weighted .+= (grid./counter_grid) * pv[index_v] #* (v1-v0/N_v)
             counter_grid_total .+= counter_grid
             
         end
