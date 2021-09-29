@@ -3,6 +3,7 @@ using OrdinaryDiffEq
 # # for GPU try only with cuArrays in Float64 precision
 using PyPlot
 using ProgressBars
+using Distributions
 
 # global variables to be set from python side through Julia "Main" namespace
 const N_real = 10000
@@ -12,6 +13,8 @@ const T = 150+273
 const m87 = 1.44316060e-25
 const k_B = 1.38064852e-23
 const Gamma = 38107518.88804419 + 0.0*im
+const u = sqrt(2*k_B*T/m87)
+const l = u*(1/abs(Gamma))
 const Omega13 = 135886166.68478012 + 0.0*im
 const Omega23 = 0.021626955125691984e9 + 0.0*im
 const gamma21tilde = 321033.05667335045+42939288389.26529*im
@@ -124,7 +127,20 @@ end
 @fastmath begin
 function f!(dy::Array{ComplexF64, 1}, x::Array{ComplexF64, 1},
             p::Array{ComplexF64, 1}, t::Float64)
-    r_sq = (p[4]+p[2]*p[1]*t - p[13])*(p[4]+p[2]*p[1]*t - p[13]) + (p[5]+p[3]*p[1]*t - p[13])*(p[5]+p[3]*p[1]*t - p[13])
+    tcol = p[14]
+    ncol = p[15]
+    if t>=tcol && ncol==0
+        dy[1] = 5/8 + 0.0*im
+        dy[2] = 3/8 + 0.0*im
+        dy[3] = 0.0 + 0.0*im
+        dy[4] = 0.0 + 0.0*im
+        dy[5] = 0.0 + 0.0*im
+        dy[6] = 0.0 + 0.0*im
+        dy[7] = 0.0 + 0.0*im
+        dy[8] = 0.0 + 0.0*im
+        ncol += 1 
+    end 
+    r_sq = (p[4]+p[2](-im*conj(Om23)/2.0)*x[1]-im*conj(Om23)*x[2]-(im*conj(Om13)/2.0)*x[3]-conj(p[11])*x[8]+im*conj(Om23)/2.013]) + (p[5]+p[3]*p[1]*t - p[13])*(p[5]+p[3]*p[1]*t - p[13])
     Om23 = p[8] * exp(-r_sq/(2.0*p[12]*p[12]))
     Om13 = p[7] * exp(-r_sq/(2.0*p[12]*p[12]))
     dy[1] = (-p[6]/2.0)*x[1]-(p[6]/2.0)*x[2]+(im*conj(Om13)/2.0)*x[5]-(im*Om13/2)*x[6]+p[6]/2.0
@@ -227,6 +243,7 @@ global coords = Array{Tuple{Int32, Int32, Int32, Int32}}(undef, N_real)
 for (index_v, v) in ProgressBar(enumerate(Vs))
     global paths = [[] for i=1:N_real]
     global tpaths = [[] for i=1:N_real]
+    global t_colls = rand(Exponential(l), N_real)
     # Choose points in advance to save only the relevant points during solving
     Threads.@threads for i = 1:N_real
         iinit, jinit, ifinal, jfinal = choose_points()
@@ -256,7 +273,7 @@ for (index_v, v) in ProgressBar(enumerate(Vs))
         new_p = ComplexF64[v_perp + 0.0*im, u0 + 0.0*im, u1 + 0.0*im,
                  xinit + 0.0*im, yinit + 0.0*im,
                  Gamma, Omega13, Omega23, gamma21tilde, gamma31tilde - im*k*vz,
-                 gamma32tilde - im*k*vz, waist, r0]
+                 gamma32tilde - im*k*vz, waist, r0, t_colls[i], 0]
         remake(prob, p=new_p, tspan=(0.0, maximum(tpaths[i])), saveat=tpaths[i])
 
     end
@@ -266,7 +283,7 @@ for (index_v, v) in ProgressBar(enumerate(Vs))
          Gamma, Omega13,
          Omega23, gamma21tilde,
          gamma31tilde - im*k*0.0,
-         gamma32tilde - im*k*0.0, waist, r0]
+         gamma32tilde - im*k*0.0, waist, r0, 1.0, 0]
     tspan = (0.0, 1.0)
     tsave = collect(LinRange{Float64}(tspan[1], tspan[2], 2))
     prob = ODEProblem{true}(f!, x0, tspan, p, jac=f_jac!, saveat=tsave)

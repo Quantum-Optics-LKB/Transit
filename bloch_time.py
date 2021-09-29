@@ -2,7 +2,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.constants import epsilon_0, hbar, c, mu_0, Boltzmann,  m_n,  e
+from scipy.constants import epsilon_0, hbar, c, mu_0, Boltzmann,  m_n,  e, elementary_charge
 from odeintw import odeintw
 from scipy.integrate import solve_ivp
 from numba import jit, cfunc, types, float64, complex128, void
@@ -234,9 +234,11 @@ class temporal_bloch:
         self.m85 = 1.44316060e-25 - 2*m_n
         self.u = np.sqrt(2*Boltzmann*T/(self.frac*self.m87+(1-self.frac)*self.m85))
         self.d = np.sqrt(9*epsilon_0*hbar*self.Gamma* self.wl**3/(8*np.pi**2))
-        self.gamma_t_analytical = self.u/self.waist *2/np.sqrt(np.pi) #formule à compléter!
+        # self.gamma_t_analytical = np.sqrt(2*Boltzmann*self.T/(self.m87*np.log(2)*np.pi*self.waist**2))
+        self.gamma_t_analytical = self.u/(self.waist*np.sqrt(np.pi)) #formule à compléter!
         self.gamma_t = 0.0
-        self.gamma = self.Gamma/2 + self.gamma_t + beta_n(self.T)/2
+        self.gamma = self.Gamma/2 + self.gamma_t #+ beta_n(self.T)/2
+        self.gamma_analytical = self.Gamma/2 + self.gamma_t_analytical
         self.delta0 = 2*np.pi * 6.834e9
         self.gamma32tilde = self.gamma - 1j*self.detun
         self.gamma31tilde = self.gamma - 1j*(self.detun-self.delta0)
@@ -561,12 +563,18 @@ class temporal_bloch:
         """)
         return grid, counter_grid
 
-    def chi_analytical(self):
-        a = (self.Gamma+self.gamma_t_analytical)/2*self.gamma
-        b = self.gamma_t_analytical/self.gamma
-        Es = np.sqrt((2*b*(1+a))/(1+b))*hbar*self.gamma/self.mu23
-        pref = self.G2*N(self.T)/(epsilon_0*hbar) * abs(self.mu23)**2/self.gamma
-        chi = pref * (1j-self.detun/self.gamma)/(1+(self.detun/self.gamma)**2 + (self.E/Es)**2)
+    def chi_analytical(self, v):
+        a = (self.Gamma/2)/self.gamma_analytical
+        b = self.gamma_t_analytical/self.gamma_analytical
+        fac = np.sqrt(2*b*(1+a)/(1+b))
+        Es0 = fac*hbar*self.gamma_analytical/self.mu23
+        Is0 = 0.5*epsilon_0*c*Es0**2
+        Delta = self.detun + self.k*v
+        Is = Is0*(1 + (Delta/self.gamma_analytical)**2)
+        print(f"{Is=}")
+        Es = np.sqrt(2*Is/(epsilon_0*c))
+        pref = self.G2*N(self.T)/(epsilon_0*hbar) * abs(self.mu23)**2/self.gamma_analytical
+        chi = pref * (1j-Delta/self.gamma_analytical)/(1+(Delta/self.gamma_analytical)**2 + (self.E/Es)**2)
         return chi
 
     def do_V_span(self, v0: float, v1: float, N_v: int):
