@@ -275,7 +275,7 @@ class temporal_bloch:
         return np.meshgrid(kx, ky)[1]
     @property
     def E_map(self):
-        return self.E*np.exp(-((self.X-self.r0)**2 + (self.Y-self.r0)**2)/(2*self.waist**2))
+        return (self.E + 1j*0)*np.exp(-((self.X-self.r0)**2 + (self.Y-self.r0)**2)/(2*self.waist**2)) 
     
     @property
     def d(self):
@@ -333,11 +333,12 @@ class temporal_bloch:
         """        
         propag = np.exp(-1j * (self.Kx**2 + self.Ky**2) * dz/(2*self.k))
         lin_phase = np.exp(-1j*self.k/2 * chi)
-        self.E_map *= lin_phase
-        self.E_map = np.fft.fft2(self.E)
-        self.E_map *= propag
-        self.E_map = np.fft.ifft2(self.E)
-        self.E = self.E_map[self.N_grid//2, self.N_grid//2]
+        E_map = self.E_map.copy()
+        E_map *= lin_phase
+        E_map = np.fft.fft2(E_map)
+        E_map *= propag
+        E_map = np.fft.ifft2(E_map)
+        self.puiss = c/2 *epsilon_0*np.abs(E_map[self.N_grid//2, self.N_grid//2])**2 * np.pi*self.waist**2
         return self.E_map
 
     def choose_points(self, plot=False):
