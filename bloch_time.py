@@ -1,13 +1,17 @@
 # -*-coding:utf-8 -*
 
-import numpy as np
-import matplotlib.pyplot as plt
-from scipy.constants import epsilon_0, hbar, c, mu_0, Boltzmann,  m_n,  e, elementary_charge
-from odeintw import odeintw
-from scipy.integrate import solve_ivp
-from numba import jit, cfunc, types, float64, complex128, void
 import sys
+
+import matplotlib.pyplot as plt
+import numpy as np
 from julia import Main
+from numba import cfunc, complex128, float64, jit, types, void
+from scipy.constants import (Boltzmann, c, e, elementary_charge, epsilon_0,
+                             hbar, m_n, mu_0)
+from scipy.integrate import solve_ivp
+
+from odeintw import odeintw
+
 
 @jit(nopython=True)
 def bresenham(x1, y1, x2, y2):
@@ -64,6 +68,7 @@ def bresenham(x1, y1, x2, y2):
         points.reverse()
     return points
 
+
 def N(T):
     P_v = 10**(15.88253 - 4529.635/T + 0.00058663*T - 2.99138*np.log10(T))
     return 133.323*P_v/(Boltzmann*T)
@@ -111,16 +116,23 @@ def deriv_notransit(t, x, p, dy):
     b = np.array([Gamma/2, Gamma/2, 0, 0, -1j*Om13/2,
                   1j*np.conj(Om13)/2, -1j*Om23/2, 1j*np.conj(Om23)/2],
                  dtype=np.complex128)
-    dy[0] = (-Gamma/2)*x[0]-(Gamma/2)*x[1]+(1j*np.conj(Om13)/2)*x[4]-(1j*Om13/2)*x[5]
-    dy[1] = (-Gamma/2)*x[0]-(Gamma/2)*x[1]+(1j*np.conj(Om23)/2)*x[6]-(1j*Om23/2)*x[7]
+    dy[0] = (-Gamma/2)*x[0]-(Gamma/2)*x[1] + \
+        (1j*np.conj(Om13)/2)*x[4]-(1j*Om13/2)*x[5]
+    dy[1] = (-Gamma/2)*x[0]-(Gamma/2)*x[1] + \
+        (1j*np.conj(Om23)/2)*x[6]-(1j*Om23/2)*x[7]
     dy[2] = -gamma21tilde*x[2]+(1j*np.conj(Om23)/2)*x[4]-(1j*Om13/2)*x[7]
-    dy[3] = -np.conj(gamma21tilde)*x[3] - (1j*Om23/2)*x[5] + (1j*np.conj(Om13)/2)*x[6]
-    dy[4] = 1j*Om13*x[0] + (1j*Om13/2)*x[1] + (1j*Om23/2)*x[2] - gamma31tilde*x[4]
-    dy[5] = -1j*np.conj(Om13)*x[0]-1j*(np.conj(Om13)/2)*x[1]-(1j*np.conj(Om23)/2)*x[3]-np.conj(gamma31tilde)*x[5]
+    dy[3] = -np.conj(gamma21tilde)*x[3] - (1j*Om23/2) * \
+        x[5] + (1j*np.conj(Om13)/2)*x[6]
+    dy[4] = 1j*Om13*x[0] + (1j*Om13/2)*x[1] + \
+        (1j*Om23/2)*x[2] - gamma31tilde*x[4]
+    dy[5] = -1j*np.conj(Om13)*x[0]-1j*(np.conj(Om13)/2)*x[1] - \
+        (1j*np.conj(Om23)/2)*x[3]-np.conj(gamma31tilde)*x[5]
     dy[6] = (1j*Om23/2)*x[0]+1j*Om23*x[1]+(1j*Om13/2)*x[3]-gamma32tilde*x[6]
-    dy[7] = (-1j*np.conj(Om23)/2)*x[0]-1j*np.conj(Om23)*x[1]-(1j*np.conj(Om13)/2)*x[2]-np.conj(gamma32tilde)*x[7]
+    dy[7] = (-1j*np.conj(Om23)/2)*x[0]-1j*np.conj(Om23)*x[1] - \
+        (1j*np.conj(Om13)/2)*x[2]-np.conj(gamma32tilde)*x[7]
     dy += b
     return dy
+
 
 @jit(nopython=True, nogil=True, fastmath=True, cache=True)
 def deriv_notransit_mut(dy, x, p, t):
@@ -155,17 +167,21 @@ def deriv_notransit_mut(dy, x, p, t):
     b = np.array([Gamma/2, Gamma/2, 0, 0, -1j*Om13/2,
                   1j*np.conj(Om13)/2, -1j*Om23/2, 1j*np.conj(Om23)/2],
                  dtype=np.complex128)
-    dy[0] = (-Gamma/2)*x[0]-(Gamma/2)*x[1]+(1j*np.conj(Om13)/2)*x[4]-(1j*Om13/2)*x[5]
-    dy[1] = (-Gamma/2)*x[0]-(Gamma/2)*x[1]+(1j*np.conj(Om23)/2)*x[6]-(1j*Om23/2)*x[7]
+    dy[0] = (-Gamma/2)*x[0]-(Gamma/2)*x[1] + \
+        (1j*np.conj(Om13)/2)*x[4]-(1j*Om13/2)*x[5]
+    dy[1] = (-Gamma/2)*x[0]-(Gamma/2)*x[1] + \
+        (1j*np.conj(Om23)/2)*x[6]-(1j*Om23/2)*x[7]
     dy[2] = -gamma21tilde*x[2]+(1j*np.conj(Om23)/2)*x[4]-(1j*Om13/2)*x[7]
-    dy[3] = -np.conj(gamma21tilde)*x[3] - (1j*Om23/2)*x[5] + (1j*np.conj(Om13)/2)*x[6]
-    dy[4] = 1j*Om13*x[0] + (1j*Om13/2)*x[1] + (1j*Om23/2)*x[2] - gamma31tilde*x[4]
-    dy[5] = -1j*np.conj(Om13)*x[0]-1j*(np.conj(Om13)/2)*x[1]-(1j*np.conj(Om23)/2)*x[3]-np.conj(gamma31tilde)*x[5]
+    dy[3] = -np.conj(gamma21tilde)*x[3] - (1j*Om23/2) * \
+        x[5] + (1j*np.conj(Om13)/2)*x[6]
+    dy[4] = 1j*Om13*x[0] + (1j*Om13/2)*x[1] + \
+        (1j*Om23/2)*x[2] - gamma31tilde*x[4]
+    dy[5] = -1j*np.conj(Om13)*x[0]-1j*(np.conj(Om13)/2)*x[1] - \
+        (1j*np.conj(Om23)/2)*x[3]-np.conj(gamma31tilde)*x[5]
     dy[6] = (1j*Om23/2)*x[0]+1j*Om23*x[1]+(1j*Om13/2)*x[3]-gamma32tilde*x[6]
-    dy[7] = (-1j*np.conj(Om23)/2)*x[0]-1j*np.conj(Om23)*x[1]-(1j*np.conj(Om13)/2)*x[2]-np.conj(gamma32tilde)*x[7]
+    dy[7] = (-1j*np.conj(Om23)/2)*x[0]-1j*np.conj(Om23)*x[1] - \
+        (1j*np.conj(Om13)/2)*x[2]-np.conj(gamma32tilde)*x[7]
     dy += b
-
-
 
 
 @jit(complex128[:, ::1](float64, complex128[::1], complex128[::1], complex128[::1]),
@@ -198,14 +214,18 @@ def deriv_notransit_jac(t, x, p, dy):
     Om23 = Omega23 * np.exp(-r_sq/(2*waist*waist))
     Om13 = Omega13 * np.exp(-r_sq/(2*waist*waist))
     A = np.array([[-Gamma/2, -Gamma/2, 0, 0, 1j*np.conj(Om13)/2, -1j*Om13/2, 0, 0],
-         [-Gamma/2, -Gamma/2, 0, 0, 0, 0, 1j*np.conj(Om23)/2, -1j*Om23/2],
-         [0, 0, -gamma21tilde, 0, 1j*np.conj(Om23)/2, 0, 0, -1j*Om13/2],
-         [0, 0, 0, -np.conj(gamma21tilde), 0, -1j*Om23/2, 1j*np.conj(Om13)/2, 0],
-         [1j*Om13, 1j*Om13/2, 1j*Om23/2, 0, -gamma31tilde, 0, 0, 0],
-         [-1j*np.conj(Om13), -1j*np.conj(Om13)/2, 0, -1j*np.conj(Om23)/2, 0, -np.conj(gamma31tilde), 0, 0],
-         [1j*Om23/2, 1j*Om23, 0, 1j*Om13/2, 0, 0, -gamma32tilde, 0],
-         [-1j*np.conj(Om23)/2, -1j*np.conj(Om23), -1j*np.conj(Om13)/2, 0, 0, 0, 0, -np.conj(gamma32tilde)]],
-         dtype=np.complex128)
+                  [-Gamma/2, -Gamma/2, 0, 0, 0, 0,
+                      1j*np.conj(Om23)/2, -1j*Om23/2],
+                  [0, 0, -gamma21tilde, 0, 1j *
+                      np.conj(Om23)/2, 0, 0, -1j*Om13/2],
+                  [0, 0, 0, -np.conj(gamma21tilde), 0, -1j*Om23 /
+                   2, 1j*np.conj(Om13)/2, 0],
+                  [1j*Om13, 1j*Om13/2, 1j*Om23/2, 0, -gamma31tilde, 0, 0, 0],
+                  [-1j*np.conj(Om13), -1j*np.conj(Om13)/2, 0, -1j *
+                   np.conj(Om23)/2, 0, -np.conj(gamma31tilde), 0, 0],
+                  [1j*Om23/2, 1j*Om23, 0, 1j*Om13/2, 0, 0, -gamma32tilde, 0],
+                  [-1j*np.conj(Om23)/2, -1j*np.conj(Om23), -1j*np.conj(Om13)/2, 0, 0, 0, 0, -np.conj(gamma32tilde)]],
+                 dtype=np.complex128)
     return A
 
 
@@ -230,7 +250,8 @@ class temporal_bloch:
         self.Gamma = 2*np.pi * 6.065e6
         self.m87 = 1.44316060e-25
         self.m85 = 1.44316060e-25 - 2*m_n
-        self.u = np.sqrt(2*Boltzmann*T/(self.frac*self.m87+(1-self.frac)*self.m85))
+        self.u = np.sqrt(
+            2*Boltzmann*T/(self.frac*self.m87+(1-self.frac)*self.m85))
         self.gamma_t = 0.0
         self.G1 = 3/8
         self.G2 = 5/8
@@ -240,7 +261,7 @@ class temporal_bloch:
         self.x0_short = np.array([self.G1 + 1j*0, self.G2 + 1j*0, 0, 0],
                                  dtype=np.complex128)
 
-    # all of this is defined as properties in order to be updated if a constant is 
+    # all of this is defined as properties in order to be updated if a constant is
     # changes
     @property
     def r0(self):
@@ -253,33 +274,35 @@ class temporal_bloch:
     @property
     def E(self):
         return np.sqrt(2*self.I/(c*epsilon_0))
-    
-    @property 
+
+    @property
     def X(self):
         return np.meshgrid(np.linspace(0, self.window, self.N_grid), np.linspace(0, self.window, self.N_grid))[0]
-    
+
     @property
     def Y(self):
         return np.meshgrid(np.linspace(0, self.window, self.N_grid), np.linspace(0, self.window, self.N_grid))[1]
-    
+
     @property
     def Kx(self):
         kx = 2 * np.pi * np.fft.fftfreq(self.N_grid, d=self.window/self.N_grid)
         ky = 2 * np.pi * np.fft.fftfreq(self.N_grid, d=self.window/self.N_grid)
         return np.meshgrid(kx, ky)[0]
-    
+
     @property
     def Ky(self):
         kx = 2 * np.pi * np.fft.fftfreq(self.N_grid, d=self.window/self.N_grid)
         ky = 2 * np.pi * np.fft.fftfreq(self.N_grid, d=self.window/self.N_grid)
         return np.meshgrid(kx, ky)[1]
+
     @property
     def E_map(self):
-        return (self.E + 1j*0)*np.exp(-((self.X-self.r0)**2 + (self.Y-self.r0)**2)/(2*self.waist**2)) 
-    
+        return (self.E + 1j*0)*np.exp(-((self.X-self.r0)**2 + (self.Y-self.r0)**2)/(2*self.waist**2))
+
     @property
     def d(self):
-        return np.sqrt(9*epsilon_0*hbar*self.Gamma* self.wl**3/(8*np.pi**2))
+        return np.sqrt(9*epsilon_0*hbar*self.Gamma * self.wl**3/(8*np.pi**2))
+
     @property
     def gamma_t_analytical(self):
         return np.sqrt(2*Boltzmann*self.T/(self.m87*np.log(2)*np.pi*self.waist**2))
@@ -287,8 +310,8 @@ class temporal_bloch:
 
     @property
     def gamma(self):
-        return self.Gamma/2 + self.gamma_t #+ beta_n(self.T)/2
-    
+        return self.Gamma/2 + self.gamma_t  # + beta_n(self.T)/2
+
     @property
     def gamma_analytical(self):
         return self.Gamma/2 + self.gamma_t_analytical
@@ -304,11 +327,11 @@ class temporal_bloch:
     @property
     def gamma21tilde(self):
         return self.gamma_t_analytical + 1j*self.delta0
-    
+
     @property
     def mu23(self):
         return (1/np.sqrt(5))*np.sqrt(1/18 + 5/18 + 7/9)*self.d + 1j*0
-    
+
     @property
     def mu13(self):
         return (1/np.sqrt(3))*np.sqrt(1/9 + 5/18 + 5/18)*self.d + 1j*0
@@ -320,7 +343,7 @@ class temporal_bloch:
     @property
     def Omega13(self):
         return self.E*self.mu13/hbar
-    
+
     def propagate_field(self, chi: np.ndarray, dz: float):
         """Propagates the field one dz step given a certain medium susceptibility chi
 
@@ -330,7 +353,7 @@ class temporal_bloch:
 
         Returns:
             np.ndarray: Propagated field
-        """        
+        """
         propag = np.exp(-1j * (self.Kx**2 + self.Ky**2) * dz/(2*self.k))
         lin_phase = np.exp(-1j*self.k/2 * chi)
         E_map = self.E_map.copy()
@@ -338,7 +361,9 @@ class temporal_bloch:
         E_map = np.fft.fft2(E_map)
         E_map *= propag
         E_map = np.fft.ifft2(E_map)
-        self.puiss = c/2 *epsilon_0*np.abs(E_map[self.N_grid//2, self.N_grid//2])**2 * np.pi*self.waist**2
+        self.puiss = c/2 * epsilon_0 * \
+            np.abs(E_map[self.N_grid//2, self.N_grid//2])**2 * \
+            np.pi*self.waist**2
         return self.E_map
 
     def choose_points(self, plot=False):
@@ -401,10 +426,12 @@ class temporal_bloch:
             norm = np.hypot(u0, u1)
             u0 /= norm
             u1 /= norm
-            t_path = np.array([np.hypot(_[1]-iinit, _[0]-jinit)*self.window/(self.N_grid*v_perp) for _ in path])
+            t_path = np.array([np.hypot(_[1]-iinit, _[0]-jinit)
+                              * self.window/(self.N_grid*v_perp) for _ in path])
         else:
             u0 = u1 = 0
-            t_path = np.array([np.hypot(_[1]-iinit, _[0]-jinit)*self.window/(self.N_grid*np.abs(vz)) for _ in path])
+            t_path = np.array([np.hypot(_[1]-iinit, _[0]-jinit)
+                              * self.window/(self.N_grid*np.abs(vz)) for _ in path])
         tfinal = t_path[-1]
         # print(f'tfinal = {tfinal*1e6} us')
         # ts = np.arange(0, tfinal, 1e-10, dtype=np.float64)
@@ -432,15 +459,22 @@ class temporal_bloch:
         Main.eval(f"const N_grid = {self.N_grid}")
         Main.eval(f"const T = {self.T}")
         Main.eval(f"const window = {self.window}")
-        Main.eval(f"const Gamma = {np.real(self.Gamma)}+{np.imag(self.Gamma)}*im")
-        Main.eval(f"const Omega13 = {np.real(self.Omega13)}+{np.imag(self.Omega13)}*im")
-        Main.eval(f"const Omega23 = {np.real(self.Omega23)}+{np.imag(self.Omega23)}*im")
-        Main.eval(f"const gamma21tilde = {np.real(self.gamma21tilde)}+{np.imag(self.gamma21tilde)}*im")
-        Main.eval(f"const gamma31tilde = {np.real(self.gamma31tilde)}+{np.imag(self.gamma31tilde)}*im")
-        Main.eval(f"const gamma32tilde = {np.real(self.gamma32tilde)}+{np.imag(self.gamma32tilde)}*im")
+        Main.eval(
+            f"const Gamma = {np.real(self.Gamma)}+{np.imag(self.Gamma)}*im")
+        Main.eval(
+            f"const Omega13 = {np.real(self.Omega13)}+{np.imag(self.Omega13)}*im")
+        Main.eval(
+            f"const Omega23 = {np.real(self.Omega23)}+{np.imag(self.Omega23)}*im")
+        Main.eval(
+            f"const gamma21tilde = {np.real(self.gamma21tilde)}+{np.imag(self.gamma21tilde)}*im")
+        Main.eval(
+            f"const gamma31tilde = {np.real(self.gamma31tilde)}+{np.imag(self.gamma31tilde)}*im")
+        Main.eval(
+            f"const gamma32tilde = {np.real(self.gamma32tilde)}+{np.imag(self.gamma32tilde)}*im")
         Main.eval(f"const waist = {self.waist} + 0*im")
         Main.eval(f"const r0 = {self.r0} + 0*im")
-        Main.eval(f"const x0 = [{self.G1} + 0*im, {self.G2} + im*0, 0.0*im, 0.0*im, 0.0*im, 0.0*im, 0.0*im, 0.0*im]")
+        Main.eval(
+            f"const x0 = [{self.G1} + 0*im, {self.G2} + im*0, 0.0*im, 0.0*im, 0.0*im, 0.0*im, 0.0*im, 0.0*im]")
         Main.eval(f"const k = {self.k}")
         Main.eval(f"const v = {v}")
         grid, counter_grid = Main.eval("""
@@ -659,8 +693,10 @@ class temporal_bloch:
         Is = Is0*(1 + (Delta/self.gamma_analytical)**2)
         # print(f"{Is=}")
         Es = np.sqrt(2*Is/(epsilon_0*c))
-        pref = self.G2*N(self.T)/(epsilon_0*hbar) * abs(self.mu23)**2/self.gamma_analytical
-        chi = pref * (1j-Delta/self.gamma_analytical)/(1+(Delta/self.gamma_analytical)**2 + (self.E/Es0)**2)
+        pref = self.G2*N(self.T)/(epsilon_0*hbar) * \
+            abs(self.mu23)**2/self.gamma_analytical
+        chi = pref * (1j-Delta/self.gamma_analytical) / \
+            (1+(Delta/self.gamma_analytical)**2 + (self.E/Es0)**2)
         return chi
 
     def do_V_span(self, v0: float, v1: float, N_v: int):
@@ -671,17 +707,24 @@ class temporal_bloch:
         Main.eval(f"global N_grid = {self.N_grid}")
         Main.eval(f"global T = {self.T}")
         Main.eval(f"global window = {self.window}")
-        Main.eval(f"global Gamma = {np.real(self.Gamma)}+{np.imag(self.Gamma)}*im")
-        Main.eval(f"global Omega13 = {np.real(self.Omega13)}+{np.imag(self.Omega13)}*im")
-        Main.eval(f"global Omega23 = {np.real(self.Omega23)}+{np.imag(self.Omega23)}*im")
-        Main.eval(f"global gamma21tilde = {np.real(self.gamma21tilde)}+{np.imag(self.gamma21tilde)}*im")
-        Main.eval(f"global gamma31tilde = {np.real(self.gamma31tilde)}+{np.imag(self.gamma31tilde)}*im")
-        Main.eval(f"global gamma32tilde = {np.real(self.gamma32tilde)}+{np.imag(self.gamma32tilde)}*im")
+        Main.eval(
+            f"global Gamma = {np.real(self.Gamma)}+{np.imag(self.Gamma)}*im")
+        Main.eval(
+            f"global Omega13 = {np.real(self.Omega13)}+{np.imag(self.Omega13)}*im")
+        Main.eval(
+            f"global Omega23 = {np.real(self.Omega23)}+{np.imag(self.Omega23)}*im")
+        Main.eval(
+            f"global gamma21tilde = {np.real(self.gamma21tilde)}+{np.imag(self.gamma21tilde)}*im")
+        Main.eval(
+            f"global gamma31tilde = {np.real(self.gamma31tilde)}+{np.imag(self.gamma31tilde)}*im")
+        Main.eval(
+            f"global gamma32tilde = {np.real(self.gamma32tilde)}+{np.imag(self.gamma32tilde)}*im")
         Main.eval(f"global waist = {self.waist} + 0*im")
         Main.eval(f"global r0 = {self.r0} + 0*im")
-        Main.eval(f"global x0 = [{self.G1} + 0*im, {self.G2} + im*0, 0.0*im, 0.0*im, 0.0*im, 0.0*im, 0.0*im, 0.0*im]")
+        Main.eval(
+            f"global x0 = [{self.G1} + 0*im, {self.G2} + im*0, 0.0*im, 0.0*im, 0.0*im, 0.0*im, 0.0*im, 0.0*im]")
         Main.eval(f"global k = {self.k}")
-        grid_weighted, counter_grid = Main.eval("""
+        grid_weighted_13, grid_weighted_23, counter_grid = Main.eval("""
         using OrdinaryDiffEq
         using ProgressBars
         using Distributions
@@ -781,26 +824,26 @@ class temporal_bloch:
             r_sq = (p[4]+p[2]*p[1]*t - p[13])^2 + (p[5]+p[3]*p[1]*t - p[13])^2
             Om23 = p[8] * exp(-r_sq/(2.0*p[12]*p[12]))
             Om13 = p[7] * exp(-r_sq/(2.0*p[12]*p[12]))
-            if t>=abs(p[14]) && abs(p[15])==0
-                dy[1] = (-p[6]/2.0)*x[1]-(p[6]/2.0)*x[2]+(im*conj(Om13)/2.0)*x[5]-(im*Om13/2)*x[6]+p[6]/2.0
-                dy[2] = (-p[6]/2.0)*x[1]-(p[6]/2.0)*x[2]+(im*conj(Om23)/2.0)*x[7]-(im*Om23/2)*x[8]+p[6]/2.0
-                dy[3] = 0.0 + 0.0*im
-                dy[4] = 0.0 + 0.0*im
-                dy[5] = 0.0 + 0.0*im
-                dy[6] = 0.0 + 0.0*im
-                dy[7] = 0.0 + 0.0*im
-                dy[8] = 0.0 + 0.0*im
-                p[15] += 1.0 + 0.0*im
-            else 
-                dy[1] = (-p[6]/2.0)*x[1]-(p[6]/2.0)*x[2]+(im*conj(Om13)/2.0)*x[5]-(im*Om13/2)*x[6]+p[6]/2.0
-                dy[2] = (-p[6]/2.0)*x[1]-(p[6]/2.0)*x[2]+(im*conj(Om23)/2.0)*x[7]-(im*Om23/2)*x[8]+p[6]/2.0
-                dy[3] = -p[9]*x[3]+(im*conj(Om23)/2.0)*x[5]-(im*Om13/2.0)*x[8]
-                dy[4] = -conj(p[9])*x[4] - (im*Om23/2.0)*x[6] + (im*conj(Om13)/2.0)*x[7]
-                dy[5] = im*Om13*x[1] + (im*Om13/2.0)*x[2] + (im*Om23/2.0)*x[3] - p[10]*x[5]-im*Om13/2.0
-                dy[6] = -im*conj(Om13)*x[1]-im*(conj(Om13)/2.0)*x[2]-(im*conj(Om23)/2.0)*x[4]-conj(p[10])*x[6]+im*conj(Om13)/2.0
-                dy[7] = (im*Om23/2.0)*x[1]+im*Om23*x[2]+(im*Om13/2.0)*x[4]-p[11]*x[7] - im*Om23/2.0
-                dy[8] = (-im*conj(Om23)/2.0)*x[1]-im*conj(Om23)*x[2]-(im*conj(Om13)/2.0)*x[3]-conj(p[11])*x[8]+im*conj(Om23)/2.0
-            end
+            # if t>=abs(p[14]) && abs(p[15])==0
+            #     dy[1] = (-p[6]/2.0)*x[1]-(p[6]/2.0)*x[2]+(im*conj(Om13)/2.0)*x[5]-(im*Om13/2)*x[6]+p[6]/2.0
+            #     dy[2] = (-p[6]/2.0)*x[1]-(p[6]/2.0)*x[2]+(im*conj(Om23)/2.0)*x[7]-(im*Om23/2)*x[8]+p[6]/2.0
+            #     dy[3] = 0.0 + 0.0*im
+            #     dy[4] = 0.0 + 0.0*im
+            #     dy[5] = 0.0 + 0.0*im
+            #     dy[6] = 0.0 + 0.0*im
+            #     dy[7] = 0.0 + 0.0*im
+            #     dy[8] = 0.0 + 0.0*im
+            #     p[15] += 1.0 + 0.0*im
+            # else 
+            dy[1] = (-p[6]/2.0)*x[1]-(p[6]/2.0)*x[2]+(im*conj(Om13)/2.0)*x[5]-(im*Om13/2)*x[6]+p[6]/2.0
+            dy[2] = (-p[6]/2.0)*x[1]-(p[6]/2.0)*x[2]+(im*conj(Om23)/2.0)*x[7]-(im*Om23/2)*x[8]+p[6]/2.0
+            dy[3] = -p[9]*x[3]+(im*conj(Om23)/2.0)*x[5]-(im*Om13/2.0)*x[8]
+            dy[4] = -conj(p[9])*x[4] - (im*Om23/2.0)*x[6] + (im*conj(Om13)/2.0)*x[7]
+            dy[5] = im*Om13*x[1] + (im*Om13/2.0)*x[2] + (im*Om23/2.0)*x[3] - p[10]*x[5]-im*Om13/2.0
+            dy[6] = -im*conj(Om13)*x[1]-im*(conj(Om13)/2.0)*x[2]-(im*conj(Om23)/2.0)*x[4]-conj(p[10])*x[6]+im*conj(Om13)/2.0
+            dy[7] = (im*Om23/2.0)*x[1]+im*Om23*x[2]+(im*Om13/2.0)*x[4]-p[11]*x[7] - im*Om23/2.0
+            dy[8] = (-im*conj(Om23)/2.0)*x[1]-im*conj(Om23)*x[2]-(im*conj(Om13)/2.0)*x[3]-conj(p[11])*x[8]+im*conj(Om23)/2.0
+            # end
         end
         end
         end
@@ -813,12 +856,12 @@ class temporal_bloch:
             r_sq = (p[4]+p[2]*p[1]*t - p[13])^2 + (p[5]+p[3]*p[1]*t - p[13])^2
             Om23 = p[8] * exp(-r_sq/(2*p[12]*p[12]))
             Om13 = p[7] * exp(-r_sq/(2*p[12]*p[12]))
-            J[1, 1] = (-p[6]/2.0)
-            J[1, 2] = -(p[6]/2.0)
+            J[1, 1] = -p[6]/2.0
+            J[1, 2] = -p[6]/2.0
             J[1, 3] = 0.0 * im
             J[1, 4] = 0.0 * im
-            J[1, 5] = (im*conj(Om13)/2.0)
-            J[1, 6] = -(im*Om13/2.0)
+            J[1, 5] = im*conj(Om13)/2.0
+            J[1, 6] = -im*Om13/2.0
             J[1, 7] = 0.0 * im
             J[1, 8] = 0.0 * im
             J[2, 1] = (-p[6]/2.0)
@@ -827,27 +870,27 @@ class temporal_bloch:
             J[2, 4] = 0.0 * im
             J[2, 5] = 0.0 * im
             J[2, 6] = 0.0 * im
-            J[2, 7] = (im*conj(Om23)/2.0)
-            J[2, 8] = -(im*Om23/2.0)
+            J[2, 7] = im*conj(Om23)/2.0
+            J[2, 8] = -im*Om23/2.0
             J[3 ,1] = 0.0 * im
             J[3 ,2] = 0.0 * im
             J[3, 3] = -p[9]
             J[3 ,4] = 0.0 * im
-            J[3, 5] = (im*conj(Om23)/2.0)
+            J[3, 5] = im*conj(Om23)/2.0
             J[3 ,6] = 0.0 * im
             J[3 ,7] = 0.0 * im
-            J[3, 8] = -(im*Om13/2.0)
+            J[3, 8] = -im*Om13/2.0
             J[4, 1] = 0.0 * im
             J[4, 2] = 0.0 * im
             J[4, 3] = 0.0 * im
             J[4, 4] = -conj(p[9])
             J[4, 5] = 0.0 * im
-            J[4, 6] = -(im*Om23/2.0)
-            J[4, 7] = (im*conj(Om13)/2.0)
+            J[4, 6] = -im*Om23/2.0
+            J[4, 7] = im*conj(Om13)/2.0
             J[4, 8] = 0.0 * im
             J[5, 1] = im*Om13
-            J[5, 2] = (im*Om13/2.0)
-            J[5, 3] = (im*Om23/2.0)
+            J[5, 2] = im*Om13/2.0
+            J[5, 3] = im*Om23/2.0
             J[5, 4] = 0.0 * im
             J[5, 5] = - p[10]
             J[5, 6] = 0.0 * im
@@ -862,16 +905,16 @@ class temporal_bloch:
             J[6, 7] = 0.0 * im
             J[6, 8] = 0.0 * im
             J[7, 1] = (im*Om23/2.0)
-            J[7, 2] = +im*Om23*x[2]
+            J[7, 2] = im*Om23
             J[7, 3] = 0.0 * im
-            J[7, 4] = +(im*Om13/2.0)
+            J[7, 4] = im*Om13/2.0
             J[7, 5] = 0.0 * im
             J[7, 6] = 0.0 * im
             J[7, 7] = -p[11]
             J[7, 8] = 0.0 * im
-            J[8, 1] = (-im*conj(Om23)/2.0)
+            J[8, 1] = -im*conj(Om23)/2.0
             J[8, 2] = -im*conj(Om23)
-            J[8, 3] = -(im*conj(Om13)/2.0)
+            J[8, 3] = -im*conj(Om13)/2.0
             J[8, 4] = 0.0 * im
             J[8, 5] = 0.0 * im
             J[8, 6] = 0.0 * im
@@ -881,10 +924,14 @@ class temporal_bloch:
         end
         end
 
-        grid = zeros(ComplexF64, (N_grid, N_grid))
+        
+
+        grid_13 = zeros(ComplexF64, (N_grid, N_grid))
+        grid_23 = zeros(ComplexF64, (N_grid, N_grid))
         counter_grid = zeros(Int32, (N_grid, N_grid))
         counter_grid_total = zeros(Int32, (N_grid, N_grid))
-        grid_weighted = zeros(ComplexF64, (N_grid, N_grid))
+        grid_weighted_13 = zeros(ComplexF64, (N_grid, N_grid))
+        grid_weighted_23 = zeros(ComplexF64, (N_grid, N_grid))
         normalized = zeros(Float64, (N_grid, N_grid))
         Vs = collect(LinRange{Float64}(v0, v1, N_v))
         pv = sqrt(2.0/pi)*((m87/(k_B*T))^(3.0/2.0)).*Vs.^2.0 .*exp.(-m87*Vs.^2.0/(2.0*k_B*T))
@@ -929,6 +976,32 @@ class temporal_bloch:
 
             end
 
+            function prob_func_gpu(prob, i, repeat)
+                iinit, jinit, ifinal, jfinal = coords[i]
+                v_perp = v_perps[i]
+                vz = sqrt(v^2.0 - v_perp^2.0)
+                xinit = jinit*window/N_grid
+                yinit = iinit*window/N_grid
+                xfinal = jfinal*window/N_grid
+                yfinal = ifinal*window/N_grid
+                # velocity unit vector
+                if v_perp != 0
+                    u0 = xfinal-xinit
+                    u1 = yfinal-yinit
+                    norm = hypot(u0, u1)
+                    u0 /= norm
+                    u1 /= norm
+                else
+                    u0 = u1 = 0
+                end
+                new_p = ComplexF64[v_perp + 0.0*im, u0 + 0.0*im, u1 + 0.0*im,
+                        xinit + 0.0*im, yinit + 0.0*im,
+                        Gamma, Omega13, Omega23, gamma21tilde, gamma31tilde - im*k*vz,
+                        gamma32tilde - im*k*vz, waist, r0, t_colls[i], 0.0*im]
+                remake(prob, p=new_p, tspan=(0.0, sqrt(2)*window/v), saveat=tpaths[i])
+
+            end
+
             # instantiate a problem
             p = ComplexF64[1.0 + 0.0*im, 1.0 + 0.0*im, 1.0 + 0.0*im, 1.0 + 0.0*im, 1.0 + 0.0*im,
                 Gamma, Omega13,
@@ -939,6 +1012,7 @@ class temporal_bloch:
             tsave = collect(LinRange{Float64}(tspan[1], tspan[2], 2))
             prob = ODEProblem{true}(f!, x0, tspan, p, jac=f_jac!, saveat=tsave)
             ensembleprob = EnsembleProblem(prob, prob_func=prob_func)
+            # ensembleprob = EnsembleProblem(prob, prob_func=prob_func_gpu)
             # select appropriate solver
             # if abs(waist) > 0.75e-3
             #     alg = Rodas5(autodiff=false)
@@ -949,35 +1023,38 @@ class temporal_bloch:
             #     atol = 1e-6
             #     rtol = 1e-3
             # end
-            alg = TRBDF2(autodiff=false)
+            alg = Rosenbrock23(autodiff=false)
             atol = 1e-6
             rtol = 1e-4
             # run once on small system to try and speed up compile time
             if index_v==1
                 sol = solve(ensembleprob, alg, EnsembleThreads(),
-                                trajectories=2, save_idxs=7, abstol=atol, reltol=rtol)
+                                trajectories=2, save_idxs=[5,7], abstol=atol, reltol=rtol)
             end
             sol = solve(ensembleprob, alg, EnsembleThreads(),
-                            trajectories=N_real, save_idxs=7, abstol=atol, reltol=rtol)
-            global grid .= zeros(ComplexF64, (N_grid, N_grid))
+                            trajectories=N_real, save_idxs=[5,7], abstol=atol, reltol=rtol)
+            global grid_13 .= zeros(ComplexF64, (N_grid, N_grid))
+            global grid_23 .= zeros(ComplexF64, (N_grid, N_grid))
             global counter_grid .= zeros(Int32, (N_grid, N_grid))
             @inbounds begin
             Threads.@threads for i = 1:N_real
                 for (j, coord) in enumerate(paths[i])
-                    grid[coord[2], coord[1]] += sol[i].u[j]
+                    grid_13[coord[2], coord[1]] += sol[i].u[j][1]
+                    grid_23[coord[2], coord[1]] += sol[i].u[j][2]
                     counter_grid[coord[2], coord[1]] += 1
                 end
             end
             end
-            grid_weighted .+= (grid./counter_grid) * pv[index_v] * abs(Vs[2]-Vs[1])
+            grid_weighted_13 .+= (grid_13./counter_grid) * pv[index_v] * abs(Vs[2]-Vs[1])
+            grid_weighted_23 .+= (grid_23./counter_grid) * pv[index_v] * abs(Vs[2]-Vs[1])
             # grid_weighted .+= grid * pv[index_v]
             counter_grid_total .+= counter_grid
             
         end
 
-        [grid_weighted, counter_grid_total]
+        [grid_weighted_13, grid_weighted_23, counter_grid_total]
         """)
-        grid_weighted *= 2*N(self.T) * np.abs(self.mu23) / (self.E * epsilon_0)
+        grid_weighted = 2*N(self.T) * (np.abs(self.mu13) * grid_weighted_13 + np.abs(self.mu23) * grid_weighted_23) / (self.E * epsilon_0)
         return grid_weighted, counter_grid
 
     def do_V_span_pop(self, v0: float, v1: float, N_v: int):
@@ -988,15 +1065,22 @@ class temporal_bloch:
         Main.eval(f"global N_grid = {self.N_grid}")
         Main.eval(f"global T = {self.T}")
         Main.eval(f"global window = {self.window}")
-        Main.eval(f"global Gamma = {np.real(self.Gamma)}+{np.imag(self.Gamma)}*im")
-        Main.eval(f"global Omega13 = {np.real(self.Omega13)}+{np.imag(self.Omega13)}*im")
-        Main.eval(f"global Omega23 = {np.real(self.Omega23)}+{np.imag(self.Omega23)}*im")
-        Main.eval(f"global gamma21tilde = {np.real(self.gamma21tilde)}+{np.imag(self.gamma21tilde)}*im")
-        Main.eval(f"global gamma31tilde = {np.real(self.gamma31tilde)}+{np.imag(self.gamma31tilde)}*im")
-        Main.eval(f"global gamma32tilde = {np.real(self.gamma32tilde)}+{np.imag(self.gamma32tilde)}*im")
+        Main.eval(
+            f"global Gamma = {np.real(self.Gamma)}+{np.imag(self.Gamma)}*im")
+        Main.eval(
+            f"global Omega13 = {np.real(self.Omega13)}+{np.imag(self.Omega13)}*im")
+        Main.eval(
+            f"global Omega23 = {np.real(self.Omega23)}+{np.imag(self.Omega23)}*im")
+        Main.eval(
+            f"global gamma21tilde = {np.real(self.gamma21tilde)}+{np.imag(self.gamma21tilde)}*im")
+        Main.eval(
+            f"global gamma31tilde = {np.real(self.gamma31tilde)}+{np.imag(self.gamma31tilde)}*im")
+        Main.eval(
+            f"global gamma32tilde = {np.real(self.gamma32tilde)}+{np.imag(self.gamma32tilde)}*im")
         Main.eval(f"global waist = {self.waist} + 0*im")
         Main.eval(f"global r0 = {self.r0} + 0*im")
-        Main.eval(f"global x0 = [{self.G1} + 0*im, {self.G2} + im*0, 0.0*im, 0.0*im, 0.0*im, 0.0*im, 0.0*im, 0.0*im]")
+        Main.eval(
+            f"global x0 = [{self.G1} + 0*im, {self.G2} + im*0, 0.0*im, 0.0*im, 0.0*im, 0.0*im, 0.0*im, 0.0*im]")
         Main.eval(f"global k = {self.k}")
         grid_pop_weighted, grid_coh_weighted, counter_grid = Main.eval("""
         using OrdinaryDiffEq
@@ -1299,7 +1383,6 @@ class temporal_bloch:
         [grid_pop_weighted, grid_coh_weighted, counter_grid_total]
         """)
         return grid_pop_weighted, grid_coh_weighted, counter_grid
-
 
     def integrate_short_notransit(self, v, ts, xinit, yinit, xfinal, yfinal):
         # y, infodict = odeintw(self.deriv_notransit, self.x0, ts, args=(v,),

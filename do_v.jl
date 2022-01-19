@@ -6,7 +6,7 @@ using ProgressBars
 using Distributions
 
 # global variables to be set from python side through Julia "Main" namespace
-const N_real = 10000
+const N_real = 2
 const N_grid = 128
 const N_v = 2
 const T = 150+273
@@ -127,22 +127,22 @@ end
 @fastmath begin
 function f!(dy::Array{ComplexF64, 1}, x::Array{ComplexF64, 1},
             p::Array{ComplexF64, 1}, t::Float64)
-    tcol = p[14]
-    ncol = p[15]
-    if t>=tcol && ncol==0
-        dy[1] = 5/8 + 0.0*im
-        dy[2] = 3/8 + 0.0*im
-        dy[3] = 0.0 + 0.0*im
-        dy[4] = 0.0 + 0.0*im
-        dy[5] = 0.0 + 0.0*im
-        dy[6] = 0.0 + 0.0*im
-        dy[7] = 0.0 + 0.0*im
-        dy[8] = 0.0 + 0.0*im
-        ncol += 1 
-    end 
-    r_sq = (p[4]+p[2](-im*conj(Om23)/2.0)*x[1]-im*conj(Om23)*x[2]-(im*conj(Om13)/2.0)*x[3]-conj(p[11])*x[8]+im*conj(Om23)/2.013]) + (p[5]+p[3]*p[1]*t - p[13])*(p[5]+p[3]*p[1]*t - p[13])
+    # tcol = p[14]
+    # ncol = p[15]
+    r_sq = (p[4]+p[2]*p[1]*t - p[13])^2 + (p[5]+p[3]*p[1]*t - p[13])^2
     Om23 = p[8] * exp(-r_sq/(2.0*p[12]*p[12]))
     Om13 = p[7] * exp(-r_sq/(2.0*p[12]*p[12]))
+    # if t>=abs(p[14]) && abs(p[15])==0
+    #     dy[1] = (-p[6]/2.0)*x[1]-(p[6]/2.0)*x[2]+(im*conj(Om13)/2.0)*x[5]-(im*Om13/2)*x[6]+p[6]/2.0
+    #     dy[2] = (-p[6]/2.0)*x[1]-(p[6]/2.0)*x[2]+(im*conj(Om23)/2.0)*x[7]-(im*Om23/2)*x[8]+p[6]/2.0
+    #     dy[3] = 0.0 + 0.0*im
+    #     dy[4] = 0.0 + 0.0*im
+    #     dy[5] = 0.0 + 0.0*im
+    #     dy[6] = 0.0 + 0.0*im
+    #     dy[7] = 0.0 + 0.0*im
+    #     dy[8] = 0.0 + 0.0*im
+    #     p[15] += 1.0 + 0.0*im
+    # else 
     dy[1] = (-p[6]/2.0)*x[1]-(p[6]/2.0)*x[2]+(im*conj(Om13)/2.0)*x[5]-(im*Om13/2)*x[6]+p[6]/2.0
     dy[2] = (-p[6]/2.0)*x[1]-(p[6]/2.0)*x[2]+(im*conj(Om23)/2.0)*x[7]-(im*Om23/2)*x[8]+p[6]/2.0
     dy[3] = -p[9]*x[3]+(im*conj(Om23)/2.0)*x[5]-(im*Om13/2.0)*x[8]
@@ -151,6 +151,7 @@ function f!(dy::Array{ComplexF64, 1}, x::Array{ComplexF64, 1},
     dy[6] = -im*conj(Om13)*x[1]-im*(conj(Om13)/2.0)*x[2]-(im*conj(Om23)/2.0)*x[4]-conj(p[10])*x[6]+im*conj(Om13)/2.0
     dy[7] = (im*Om23/2.0)*x[1]+im*Om23*x[2]+(im*Om13/2.0)*x[4]-p[11]*x[7] - im*Om23/2.0
     dy[8] = (-im*conj(Om23)/2.0)*x[1]-im*conj(Om23)*x[2]-(im*conj(Om13)/2.0)*x[3]-conj(p[11])*x[8]+im*conj(Om23)/2.0
+    # end
 end
 end
 end
@@ -163,12 +164,12 @@ function f_jac!(J::Array{ComplexF64, 2}, x::Array{ComplexF64, 1},
     r_sq = (p[4]+p[2]*p[1]*t - p[13])^2 + (p[5]+p[3]*p[1]*t - p[13])^2
     Om23 = p[8] * exp(-r_sq/(2*p[12]*p[12]))
     Om13 = p[7] * exp(-r_sq/(2*p[12]*p[12]))
-    J[1, 1] = (-p[6]/2.0)
-    J[1, 2] = -(p[6]/2.0)
+    J[1, 1] = -p[6]/2.0
+    J[1, 2] = -p[6]/2.0
     J[1, 3] = 0.0 * im
     J[1, 4] = 0.0 * im
-    J[1, 5] = (im*conj(Om13)/2.0)
-    J[1, 6] = -(im*Om13/2.0)
+    J[1, 5] = im*conj(Om13)/2.0
+    J[1, 6] = -im*Om13/2.0
     J[1, 7] = 0.0 * im
     J[1, 8] = 0.0 * im
     J[2, 1] = (-p[6]/2.0)
@@ -177,27 +178,27 @@ function f_jac!(J::Array{ComplexF64, 2}, x::Array{ComplexF64, 1},
     J[2, 4] = 0.0 * im
     J[2, 5] = 0.0 * im
     J[2, 6] = 0.0 * im
-    J[2, 7] = (im*conj(Om23)/2.0)
-    J[2, 8] = -(im*Om23/2.0)
+    J[2, 7] = im*conj(Om23)/2.0
+    J[2, 8] = -im*Om23/2.0
     J[3 ,1] = 0.0 * im
     J[3 ,2] = 0.0 * im
     J[3, 3] = -p[9]
     J[3 ,4] = 0.0 * im
-    J[3, 5] = (im*conj(Om23)/2.0)
+    J[3, 5] = im*conj(Om23)/2.0
     J[3 ,6] = 0.0 * im
     J[3 ,7] = 0.0 * im
-    J[3, 8] = -(im*Om13/2.0)
+    J[3, 8] = -im*Om13/2.0
     J[4, 1] = 0.0 * im
     J[4, 2] = 0.0 * im
     J[4, 3] = 0.0 * im
     J[4, 4] = -conj(p[9])
     J[4, 5] = 0.0 * im
-    J[4, 6] = -(im*Om23/2.0)
-    J[4, 7] = (im*conj(Om13)/2.0)
+    J[4, 6] = -im*Om23/2.0
+    J[4, 7] = im*conj(Om13)/2.0
     J[4, 8] = 0.0 * im
     J[5, 1] = im*Om13
-    J[5, 2] = (im*Om13/2.0)
-    J[5, 3] = (im*Om23/2.0)
+    J[5, 2] = im*Om13/2.0
+    J[5, 3] = im*Om23/2.0
     J[5, 4] = 0.0 * im
     J[5, 5] = - p[10]
     J[5, 6] = 0.0 * im
@@ -212,16 +213,16 @@ function f_jac!(J::Array{ComplexF64, 2}, x::Array{ComplexF64, 1},
     J[6, 7] = 0.0 * im
     J[6, 8] = 0.0 * im
     J[7, 1] = (im*Om23/2.0)
-    J[7, 2] = +im*Om23*x[2]
+    J[7, 2] = im*Om23
     J[7, 3] = 0.0 * im
-    J[7, 4] = +(im*Om13/2.0)
+    J[7, 4] = im*Om13/2.0
     J[7, 5] = 0.0 * im
     J[7, 6] = 0.0 * im
     J[7, 7] = -p[11]
     J[7, 8] = 0.0 * im
-    J[8, 1] = (-im*conj(Om23)/2.0)
+    J[8, 1] = -im*conj(Om23)/2.0
     J[8, 2] = -im*conj(Om23)
-    J[8, 3] = -(im*conj(Om13)/2.0)
+    J[8, 3] = -im*conj(Om13)/2.0
     J[8, 4] = 0.0 * im
     J[8, 5] = 0.0 * im
     J[8, 6] = 0.0 * im
@@ -231,10 +232,14 @@ end
 end
 end
 
-grid = zeros(ComplexF64, (N_grid, N_grid))
+
+
+grid_13 = zeros(ComplexF64, (N_grid, N_grid))
+grid_23 = zeros(ComplexF64, (N_grid, N_grid))
 counter_grid = zeros(Int32, (N_grid, N_grid))
 counter_grid_total = zeros(Int32, (N_grid, N_grid))
-grid_weighted = zeros(ComplexF64, (N_grid, N_grid))
+grid_weighted_13 = zeros(ComplexF64, (N_grid, N_grid))
+grid_weighted_23 = zeros(ComplexF64, (N_grid, N_grid))
 normalized = zeros(Float64, (N_grid, N_grid))
 Vs = collect(LinRange{Float64}(v0, v1, N_v))
 pv = sqrt(2.0/pi)*((m87/(k_B*T))^(3.0/2.0)).*Vs.^2.0 .*exp.(-m87*Vs.^2.0/(2.0*k_B*T))
@@ -243,7 +248,8 @@ global coords = Array{Tuple{Int32, Int32, Int32, Int32}}(undef, N_real)
 for (index_v, v) in ProgressBar(enumerate(Vs))
     global paths = [[] for i=1:N_real]
     global tpaths = [[] for i=1:N_real]
-    global t_colls = rand(Exponential(l), N_real)
+    # global t_colls = rand(Exponential(l), N_real)
+    global t_colls = zeros(Float64, N_real)
     # Choose points in advance to save only the relevant points during solving
     Threads.@threads for i = 1:N_real
         iinit, jinit, ifinal, jfinal = choose_points()
@@ -271,46 +277,89 @@ for (index_v, v) in ProgressBar(enumerate(Vs))
             u0 = u1 = 0
         end
         new_p = ComplexF64[v_perp + 0.0*im, u0 + 0.0*im, u1 + 0.0*im,
-                 xinit + 0.0*im, yinit + 0.0*im,
-                 Gamma, Omega13, Omega23, gamma21tilde, gamma31tilde - im*k*vz,
-                 gamma32tilde - im*k*vz, waist, r0, t_colls[i], 0]
+                xinit + 0.0*im, yinit + 0.0*im,
+                Gamma, Omega13, Omega23, gamma21tilde, gamma31tilde - im*k*vz,
+                gamma32tilde - im*k*vz, waist, r0, t_colls[i], 0.0*im]
         remake(prob, p=new_p, tspan=(0.0, maximum(tpaths[i])), saveat=tpaths[i])
+
+    end
+
+    function prob_func_gpu(prob, i, repeat)
+        iinit, jinit, ifinal, jfinal = coords[i]
+        v_perp = v_perps[i]
+        vz = sqrt(v^2.0 - v_perp^2.0)
+        xinit = jinit*window/N_grid
+        yinit = iinit*window/N_grid
+        xfinal = jfinal*window/N_grid
+        yfinal = ifinal*window/N_grid
+        # velocity unit vector
+        if v_perp != 0
+            u0 = xfinal-xinit
+            u1 = yfinal-yinit
+            norm = hypot(u0, u1)
+            u0 /= norm
+            u1 /= norm
+        else
+            u0 = u1 = 0
+        end
+        new_p = ComplexF64[v_perp + 0.0*im, u0 + 0.0*im, u1 + 0.0*im,
+                xinit + 0.0*im, yinit + 0.0*im,
+                Gamma, Omega13, Omega23, gamma21tilde, gamma31tilde - im*k*vz,
+                gamma32tilde - im*k*vz, waist, r0, t_colls[i], 0.0*im]
+        remake(prob, p=new_p, tspan=(0.0, sqrt(2)*window/v), saveat=tpaths[i])
 
     end
 
     # instantiate a problem
     p = ComplexF64[1.0 + 0.0*im, 1.0 + 0.0*im, 1.0 + 0.0*im, 1.0 + 0.0*im, 1.0 + 0.0*im,
-         Gamma, Omega13,
-         Omega23, gamma21tilde,
-         gamma31tilde - im*k*0.0,
-         gamma32tilde - im*k*0.0, waist, r0, 1.0, 0]
+        Gamma, Omega13,
+        Omega23, gamma21tilde,
+        gamma31tilde - im*k*0.0,
+        gamma32tilde - im*k*0.0, waist, r0, 1.0, 0]
     tspan = (0.0, 1.0)
     tsave = collect(LinRange{Float64}(tspan[1], tspan[2], 2))
     prob = ODEProblem{true}(f!, x0, tspan, p, jac=f_jac!, saveat=tsave)
     ensembleprob = EnsembleProblem(prob, prob_func=prob_func)
+    # ensembleprob = EnsembleProblem(prob, prob_func=prob_func_gpu)
+    # select appropriate solver
+    # if abs(waist) > 0.75e-3
+    #     alg = Rodas5(autodiff=false)
+    #     atol = 1e-6
+    #     rtol = 1e-4
+    # else
+    #     alg = TRBDF2(autodiff=false)
+    #     atol = 1e-6
+    #     rtol = 1e-3
+    # end
+    alg = Rosenbrock23(autodiff=false)
+    atol = 1e-6
+    rtol = 1e-4
     # run once on small system to try and speed up compile time
     if index_v==1
-        sol = solve(ensembleprob, TRBDF2(autodiff=false), EnsembleThreads(),
-                          trajectories=2, save_idxs=7)
-
+        sol = solve(ensembleprob, alg, EnsembleThreads(),
+                        trajectories=2, save_idxs=[5,7], abstol=atol, reltol=rtol)
     end
-    sol = solve(ensembleprob, TRBDF2(autodiff=false), EnsembleThreads(),
-                      trajectories=N_real, save_idxs=7)
-    global grid .= zeros(ComplexF64, (N_grid, N_grid))
+    sol = solve(ensembleprob, alg, EnsembleThreads(),
+                    trajectories=N_real, save_idxs=[5,7], abstol=atol, reltol=rtol)
+    global grid_13 .= zeros(ComplexF64, (N_grid, N_grid))
+    global grid_23 .= zeros(ComplexF64, (N_grid, N_grid))
     global counter_grid .= zeros(Int32, (N_grid, N_grid))
     @inbounds begin
     Threads.@threads for i = 1:N_real
         for (j, coord) in enumerate(paths[i])
-            grid[coord[2], coord[1]] += sol[i].u[j]
+            grid_13[coord[2], coord[1]] += sol[i].u[j][1]
+            grid_23[coord[2], coord[1]] += sol[i].u[j][2]
             counter_grid[coord[2], coord[1]] += 1
         end
     end
     end
-    # grid_weighted .+= (grid./counter_grid) * pv[index_v]
-    grid_weighted .+= grid * pv[index_v]
+    grid_weighted_13 .+= (grid_13./counter_grid) * pv[index_v] * abs(Vs[2]-Vs[1])
+    grid_weighted_23 .+= (grid_23./counter_grid) * pv[index_v] * abs(Vs[2]-Vs[1])
+    # grid_weighted .+= grid * pv[index_v]
     counter_grid_total .+= counter_grid
     
 end
+
 
 pol = real.(grid_weighted)
 fig, ax = subplots(1, 2)
