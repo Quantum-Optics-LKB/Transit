@@ -67,7 +67,7 @@ def main():
 
     # plt.show()
     waists = np.linspace(50e-6, 2e-3, 20)
-    powers = np.linspace(50e-3, 1, 20)
+    powers = np.linspace(50e-3, 540e-3, 20)
     waists_murad = np.asarray([0.054e-3, 8.350e-4, 9.400e-05, 2.050e-04, 3.680e-04, 8.900e-04, 0.00130,
                                0.00186, 0.00390, 0.00250], dtype=np.float64)
     idx_sorted = np.argsort(waists_murad)
@@ -123,137 +123,135 @@ def main():
     # ax1.set_ylabel("abs(n2) in $m^{2} / W$")
     # plt.show()
     # Waist run
-    fig, ax = plt.subplots(2, 5)
-    fig1, ax1 = plt.subplots()
-    n2_w_murad = np.empty(
-        (len(waists_murad), N_grid, N_grid), dtype=np.float64)
-    n2_center = np.empty(len(waists_murad), dtype=np.float64)
-    for counter_w, waist in enumerate(waists_murad):
-        print(f"Waist {counter_w+1}/{len(waists_murad)}")
-        solver = temporal_bloch(T, I*(np.pi*waist**2), waist, detun, L, N_grid=N_grid,
-                                N_v=N_v, N_real=N_real, N_proc=N_proc)
-        solver1 = temporal_bloch(T, 1e-9, waist, detun, L, N_grid=N_grid,
-                                 N_v=N_v, N_real=N_real, N_proc=N_proc)
-        solver.window = 10*waist
-        solver1.window = solver.window
-        renorm, counter = solver.do_V_span(v0, v1, N_v)
-        renorm1, counter_1 = solver1.do_V_span(v0, v1, N_v)
-        # alpha = -np.log(0.6)/L
-        # Itilde = solver.I*(1-np.exp(alpha*L))/(alpha*L)
-        nlow = np.sqrt(1 + renorm1)
-        nhigh = np.sqrt(1 + renorm)
-        Dn = np.real(nhigh-nlow)
-        n2 = Dn/solver.I
-        avg_zone = 10
-        n2_c = np.mean(n2[N_grid//2-avg_zone:N_grid//2+avg_zone,
-                          N_grid//2-avg_zone:N_grid//2+avg_zone])
-        # n2_c = np.mean(n2)
-        n2_w_murad[counter_w, :, :] = n2
-        np.save(f'results/n2_w{counter_w}_murad_{start_time}.npy', n2)
-        n2_center[counter_w] = n2_c
-    np.save(f"results/n2_center_w_P_{start_time}.npy", n2_center)
-    for counter_w, waist in enumerate(waists_murad):
-        im = ax[counter_w//5, counter_w % 5].imshow(np.abs(n2_w_murad[counter_w, :, :]),
-                                                    vmin=np.nanmin(
-            np.abs(n2_w_murad)),
-            vmax=np.nanmax(np.abs(n2_w_murad)))
-        ax[counter_w//5, counter_w % 5].set_title("$w_{0}$ = " +
-                                                  f"{np.round(waist*1e3, decimals=2)} mm")
-        fig.colorbar(im, ax=ax[counter_w//5, counter_w % 5])
-    # n2_center = np.load("results/n2_center_w_P_Fri Jan  7 13:29:56 2022.npy")
-    ax1.scatter(waists_murad*1e3, np.abs(n2_center))
-    ax1.scatter(waists_murad*1e3, n2_murad, marker='x')
-    ax1.legend(["Computed", "Data"])
-    ax1.set_title("$\Delta n /I$ vs waist")
-    ax1.set_xlabel("Beam waist in mm")
-    ax1.set_ylabel("$|\Delta n / I|$ in $m^{2} / W$")
-    ax1.set_yscale("log")
-    # ax1.set_xscale("log")
-    fig1.tight_layout()
-    plt.show()
-    # Power run
-    # idx = 1
-    # fig, ax = plt.subplots(4, 5)
+    # fig, ax = plt.subplots(2, 5)
     # fig1, ax1 = plt.subplots()
-    # n2_P_murad = np.empty((len(powers), N_grid, N_grid), dtype=np.float64)
-    # n2_center = np.empty(len(powers), dtype=np.float64)
-    # n2_analytical = np.empty(len(powers), dtype=np.float64)
-    # solver1 = temporal_bloch(T, 1e-9, waists_murad[idx], detun, L, N_grid=N_grid,
-    #                          N_v=N_v, N_real=N_real, N_proc=N_proc)
-    # solver1.window = 10*waists_murad[idx]
-    # vs = np.linspace(-1500, 1500, 5000)
-    # pvs = np.sqrt(solver1.m87/(2*np.pi*cst.Boltzmann*solver1.T)) * \
-    #     np.exp(-solver1.m87*vs**2/(2*cst.Boltzmann*solver1.T))
-    # renorm1, counter_1 = solver1.do_V_span(v0, v1, N_v)
-    # chi_analytical_low = np.sum(
-    #     solver1.chi_analytical(vs)*pvs*np.abs(vs[1]-vs[0]))
-    # # chi_analytical_low = solver1.chi_analytical(0)
-    # t0 = time.time()
-    # for counter_p, power in enumerate(powers):
-    #     print(f"Power {counter_p+1}/{len(powers)}")
-    #     solver = temporal_bloch(T, power, waists_murad[idx], detun, L, N_grid=N_grid,
+    # indices = [7, 8, 9]
+    # n2_w_murad = np.empty(
+    #     (len(waists_murad[indices]), N_grid, N_grid), dtype=np.float64)
+    # n2_center = np.empty(len(waists_murad[indices]), dtype=np.float64)
+    # for counter_w, waist in enumerate(waists_murad[indices]):
+    #     print(f"Waist {counter_w+1}/{len(waists_murad[indices])}")
+    #     solver = temporal_bloch(T, I*(np.pi*waist**2), waist, detun, L, N_grid=N_grid,
     #                             N_v=N_v, N_real=N_real, N_proc=N_proc)
-    #     solver.window = solver1.window
+    #     solver1 = temporal_bloch(T, 1e-9, waist, detun, L, N_grid=N_grid,
+    #                              N_v=N_v, N_real=N_real, N_proc=N_proc)
+    #     solver.window = 10*waist
+    #     solver1.window = solver.window
     #     renorm, counter = solver.do_V_span(v0, v1, N_v)
-    #     chi_analytical_high = np.sum(
-    #         solver.chi_analytical(vs)*pvs*np.abs(vs[1]-vs[0]))
-    #     # chi_analytical_high = solver.chi_analytical(0)
-    #     chi3 = (np.real(renorm) - np.real(renorm1))/solver.I
-    #     chi3_analytical = (np.real(chi_analytical_high) -
-    #                        np.real(chi_analytical_low))/solver.I
-    #     n0 = np.sqrt(1 + np.real(renorm1))
-    #     n0_analytical = np.sqrt(1 + np.real(chi_analytical_low))
-    #     n2 = (3/(4*n0*cst.epsilon_0*cst.c))*chi3
-    #     n2_a = (3/(4*n0_analytical*cst.epsilon_0*cst.c))*chi3_analytical
-    #     # print(f"{n2_a=}")
-    #     avg_zone = 5
+    #     renorm1, counter_1 = solver1.do_V_span(v0, v1, N_v)
+    #     # alpha = -np.log(0.6)/L
+    #     # Itilde = solver.I*(1-np.exp(alpha*L))/(alpha*L)
+    #     nlow = np.sqrt(1 + renorm1)
+    #     nhigh = np.sqrt(1 + renorm)
+    #     Dn = np.real(nhigh-nlow)
+    #     n2 = Dn/solver.I
+    #     avg_zone = 10
     #     n2_c = np.mean(n2[N_grid//2-avg_zone:N_grid//2+avg_zone,
     #                       N_grid//2-avg_zone:N_grid//2+avg_zone])
-    #     n2_P_murad[counter_p, :, :] = n2
-    #     # np.save(f'results/n2_w{counter_w}_murad_{start_time}.npy', n2)
-    #     n2_center[counter_p] = n2_c
-    #     n2_analytical[counter_p] = n2_a
-    # print(f"{n2_analytical=}")
+    #     # n2_c = np.mean(n2)
+    #     n2_w_murad[counter_w, :, :] = n2
+    #     np.save(f'results/n2_w{counter_w}_murad_{start_time}.npy', n2)
+    #     n2_center[counter_w] = n2_c
     # np.save(f"results/n2_center_w_P_{start_time}.npy", n2_center)
-    # np.save(
-    #     f"results/n2_center_w_P_{start_time}_analytical.npy", n2_analytical)
-    # print(f"Time spent to loop powers : {time.time()-t0} s")
-    # for counter_p, power in enumerate(powers):
-    #     im = ax[counter_p//5, counter_p % 5].imshow(np.abs(n2_P_murad[counter_p, :, :]),
+    # for counter_w, waist in enumerate(waists_murad[indices]):
+    #     im = ax[counter_w//5, counter_w % 5].imshow(np.abs(n2_w_murad[counter_w, :, :]),
     #                                                 vmin=np.nanmin(
-    #         np.abs(n2_P_murad)),
-    #         vmax=np.nanmax(np.abs(n2_P_murad)))
-    #     ax[counter_p//5, counter_p % 5].set_title("$P_{0}$ = " +
-    #                                               f"{np.round(power*1e3, decimals=2)} mW")
-    #     fig.colorbar(im, ax=ax[counter_p//5, counter_p % 5])
-
-    # def fit_Isat(P, n2_0, Isat):
-    #     I = P/waists_murad[idx]
-    #     return n2_0/(1+I/Isat)
-    # popt, pcov = curve_fit(fit_Isat, powers, n2_center,
-    #                        p0=[n2_center[0], 1.0])
-    # popt1, pcov1 = curve_fit(fit_Isat, powers, n2_analytical,
-    #                          p0=[n2_center[0], 1.0])
-    # print(popt)
-    # ax1.plot(powers*1e3, -n2_center)
-    # ax1.plot(powers*1e3, -fit_Isat(powers, popt[0], popt[1]))
-    # ax1.plot(powers*1e3, -fit_Isat(powers, -n2_murad[idx], I_sat_murad[idx]))
-    # ax1.plot(powers*1e3, -n2_analytical)
-    # leg1 = "Fit : $n_{2}$ = "+"{:.2e}".format(popt[0])+" $m^{2}/W$, " +\
-    #     "$I_{sat}$ = "+f"{np.round(popt[1], decimals=2)} "+"$W/m^{2}$"
-    # leg2 = "Data : $n_{2}$ = "+"{:.2e}".format(-n2_murad[idx])+" $m^{2}/W$, " +\
-    #     "$I_{sat}$ = "+f"{np.round(I_sat_murad[idx], decimals=2)} "+"$W/m^{2}$"
-    # leg3 = "Analytical : $n_{2}$ = "+"{:.2e}".format(popt1[0])+" $m^{2}/W$, " +\
-    #     "$I_{sat}$ = "+f"{np.round(popt1[1], decimals=2)} "+"$W/m^{2}$"
-    # ax1.legend(["Computed", leg1, leg2, leg3])
-    # ax1.set_title("$n_{2}$ vs power, $w_{0}$ = " +
-    #               f"{np.round(waists_murad[idx]*1e3, decimals=2)} mm")
-    # fig.suptitle("$n_{2}$ vs power, $w_{0}$ = " +
-    #              f"{np.round(waists_murad[idx]*1e3, decimals=2)} mm")
-    # ax1.set_xlabel("Power in mW")
-    # ax1.set_ylabel("n2 in $m^{2} / W$")
-    # ax1.set_yscale('log')
+    #         np.abs(n2_w_murad)),
+    #         vmax=np.nanmax(np.abs(n2_w_murad)))
+    #     ax[counter_w//5, counter_w % 5].set_title("$w_{0}$ = " +
+    #                                               f"{np.round(waist*1e3, decimals=2)} mm")
+    #     fig.colorbar(im, ax=ax[counter_w//5, counter_w % 5])
+    # # n2_center = np.load("results/n2_center_w_P_Fri Jan  7 13:29:56 2022.npy")
+    # ax1.scatter(waists_murad[indices]*1e3, np.abs(n2_center))
+    # ax1.scatter(waists_murad[indices]*1e3, n2_murad[indices], marker='x')
+    # ax1.legend(["Computed", "Data"])
+    # ax1.set_title("$\Delta n /I$ vs waist")
+    # ax1.set_xlabel("Beam waist in mm")
+    # ax1.set_ylabel("$|\Delta n / I|$ in $m^{2} / W$")
+    # ax1.set_yscale("log")
+    # # ax1.set_xscale("log")
+    # fig1.tight_layout()
     # plt.show()
+    # Power run
+    idx = 8
+    fig, ax = plt.subplots(4, 5)
+    fig1, ax1 = plt.subplots()
+    Dn_P_murad = np.empty((len(powers), N_grid, N_grid), dtype=np.float64)
+    Dn_center = np.empty(len(powers), dtype=np.float64)
+    Dn_analytical = np.empty(len(powers), dtype=np.float64)
+    solver1 = temporal_bloch(T, 1e-9, waists_murad[idx], detun, L, N_grid=N_grid,
+                             N_v=N_v, N_real=N_real, N_proc=N_proc)
+    solver1.window = 10*waists_murad[idx]
+    vs = np.linspace(-1500, 1500, 5000)
+    pvs = np.sqrt(solver1.m87/(2*np.pi*cst.Boltzmann*solver1.T)) * \
+        np.exp(-solver1.m87*vs**2/(2*cst.Boltzmann*solver1.T))
+    renorm1, counter_1 = solver1.do_V_span(v0, v1, N_v)
+    nlow = np.sqrt(1 + renorm1)
+    chi_analytical_low = np.sum(
+        solver1.chi_analytical(vs)*pvs*np.abs(vs[1]-vs[0]))
+    # chi_analytical_low = solver1.chi_analytical(0)
+    t0 = time.time()
+    for counter_p, power in enumerate(powers):
+        print(f"Power {counter_p+1}/{len(powers)}")
+        solver = temporal_bloch(T, power, waists_murad[idx], detun, L, N_grid=N_grid,
+                                N_v=N_v, N_real=N_real, N_proc=N_proc)
+        solver.window = solver1.window
+        renorm, counter = solver.do_V_span(v0, v1, N_v)
+        chi_analytical_high = np.sum(
+            solver.chi_analytical(vs)*pvs*np.abs(vs[1]-vs[0]))
+        nlow_a = np.sqrt(1 + chi_analytical_low)
+        nhigh_a = np.sqrt(1 + chi_analytical_high)
+        nhigh = np.sqrt(1 + renorm)
+        Dn_a = np.real(nhigh_a - nlow_a)
+        Dn = np.real(nhigh-nlow)
+        # print(f"{n2_a=}")
+        avg_zone = 5
+        Dn_c = np.mean(Dn[N_grid//2-avg_zone:N_grid//2+avg_zone,
+                          N_grid//2-avg_zone:N_grid//2+avg_zone])
+        Dn_P_murad[counter_p, :, :] = Dn
+        np.save(f'results/Dn_w{counter_p}_murad_{start_time}.npy', Dn)
+        Dn_center[counter_p] = Dn_c
+        Dn_analytical[counter_p] = Dn_a
+    np.save(f"results/Dn_center_w_P_{start_time}.npy", Dn_center)
+    np.save(
+        f"results/Dn_center_w_P_{start_time}_analytical.npy", Dn_analytical)
+    print(f"Time spent to loop powers : {time.time()-t0} s")
+    for counter_p, power in enumerate(powers):
+        im = ax[counter_p//5, counter_p % 5].imshow(np.abs(Dn_P_murad[counter_p, :, :]),
+                                                    vmin=np.nanmin(
+            np.abs(Dn_P_murad)),
+            vmax=np.nanmax(np.abs(Dn_P_murad)))
+        ax[counter_p//5, counter_p % 5].set_title("$P_{0}$ = " +
+                                                  f"{np.round(power*1e3, decimals=2)} mW")
+        fig.colorbar(im, ax=ax[counter_p//5, counter_p % 5])
+
+    def fit_Isat(P, n2_0, Isat):
+        I = P/waists_murad[idx]
+        return n2_0*I/(1+I/Isat)
+    popt, pcov = curve_fit(fit_Isat, powers, Dn_center,
+                           p0=[Dn_center[0]/solver.I, 1.0], maxfev=4000)
+    popt1, pcov1 = curve_fit(fit_Isat, powers, Dn_analytical,
+                             p0=[Dn_center[0]/solver.I, 1.0], maxfev=4000)
+    print(popt)
+    ax1.plot(powers*1e3, Dn_center)
+    ax1.plot(powers*1e3, fit_Isat(powers, popt[0], popt[1]))
+    ax1.plot(powers*1e3, fit_Isat(powers, -n2_murad[idx], I_sat_murad[idx]))
+    ax1.plot(powers*1e3, Dn_analytical)
+    leg1 = "Fit : $n_{2}$ = "+"{:.2e}".format(popt[0])+" $m^{2}/W$, " +\
+        "$I_{sat}$ = "+f"{np.round(popt[1], decimals=2)} "+"$W/m^{2}$"
+    leg2 = "Data : $n_{2}$ = "+"{:.2e}".format(-n2_murad[idx])+" $m^{2}/W$, " +\
+        "$I_{sat}$ = "+f"{np.round(I_sat_murad[idx], decimals=2)} "+"$W/m^{2}$"
+    leg3 = "Analytical : $n_{2}$ = "+"{:.2e}".format(popt1[0])+" $m^{2}/W$, " +\
+        "$I_{sat}$ = "+f"{np.round(popt1[1], decimals=2)} "+"$W/m^{2}$"
+    ax1.legend(["Computed", leg1, leg2, leg3])
+    ax1.set_title("$\Delta n$ vs power, $w_{0}$ = " +
+                  f"{np.round(waists_murad[idx]*1e3, decimals=2)} mm")
+    fig.suptitle("$\Delta n$ vs power, $w_{0}$ = " +
+                 f"{np.round(waists_murad[idx]*1e3, decimals=2)} mm")
+    ax1.set_xlabel("Power in mW")
+    ax1.set_ylabel("$\Delta n$")
+    # ax1.set_yscale('log')
+    plt.show()
     # realizations run
     # reals = [1000, 2000, 5000, 10000, 50000, 100000]
     # n2_center = np.empty(len(reals), dtype=np.float64)

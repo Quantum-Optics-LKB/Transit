@@ -1012,27 +1012,26 @@ class temporal_bloch:
             tsave = collect(LinRange{Float64}(tspan[1], tspan[2], 2))
             prob = ODEProblem{true}(f!, x0, tspan, p, jac=f_jac!, saveat=tsave)
             ensembleprob = EnsembleProblem(prob, prob_func=prob_func)
-            # ensembleprob = EnsembleProblem(prob, prob_func=prob_func_gpu)
-            # select appropriate solver
-            # if abs(waist) > 0.75e-3
+            # select appropriate solver for optimal stability
+            # if abs(waist) > 1e-3
             #     alg = Rodas5(autodiff=false)
-            #     atol = 1e-6
-            #     rtol = 1e-4
+            #     atol = 1e-7
+            #     rtol = 1e-6
             # else
             #     alg = TRBDF2(autodiff=false)
-            #     atol = 1e-6
-            #     rtol = 1e-3
+            #     atol = 1e-10
+            #     rtol = 1e-8
             # end
-            alg = Rosenbrock23(autodiff=false)
-            atol = 1e-6
-            rtol = 1e-4
+            alg = Rodas5(autodiff=false)
+            atol = 1e-8
+            rtol = 1e-6
             # run once on small system to try and speed up compile time
             if index_v==1
                 sol = solve(ensembleprob, alg, EnsembleThreads(),
-                                trajectories=2, save_idxs=[5,7], abstol=atol, reltol=rtol)
+                                trajectories=2, save_idxs=[5,7], abstol=atol, reltol=rtol, maxiters=Int(1e8))
             end
             sol = solve(ensembleprob, alg, EnsembleThreads(),
-                            trajectories=N_real, save_idxs=[5,7], abstol=atol, reltol=rtol)
+                            trajectories=N_real, save_idxs=[5,7], abstol=atol, reltol=rtol, maxiters=Int(1e8))
             global grid_13 .= zeros(ComplexF64, (N_grid, N_grid))
             global grid_23 .= zeros(ComplexF64, (N_grid, N_grid))
             global counter_grid .= zeros(Int32, (N_grid, N_grid))
