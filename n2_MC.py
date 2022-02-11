@@ -20,7 +20,7 @@ from bloch_time import N, temporal_bloch
 
 T = 150+273  # cell temp
 puiss = 560e-3  # power in W
-waist = 1e-3  # beam waist
+waist = 1.85e-3  # beam waist
 I = puiss/(np.pi*waist**2)
 detun = -4e9  # detuning
 L = 10e-3  # cell length

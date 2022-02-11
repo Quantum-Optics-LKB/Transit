@@ -280,7 +280,7 @@ class temporal_bloch:
         self.frac = 0.995
         self.wl = 780.241e-9
         self.k = 2*np.pi/self.wl
-        self.Gamma = 2*np.pi * 6.065e6
+        self.Gamma = 2*np.pi * 6.0666e6
         self.m87 = 1.44316060e-25
         self.m85 = 1.44316060e-25 - 2*m_n
         self.u = np.sqrt(
