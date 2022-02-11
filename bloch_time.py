@@ -1,20 +1,21 @@
 # -*-coding:utf-8 -*
 
+from odeintw import odeintw
+from scipy.integrate import solve_ivp
+from scipy.constants import (Boltzmann, c, e, elementary_charge, epsilon_0,
+                             hbar, m_n, mu_0)
+from numba import cfunc, complex128, float64, jit, types, void
+from julia import Main
 import sys
 
 import matplotlib.pyplot as plt
 import numpy as np
-from julia import Main
-from numba import cfunc, complex128, float64, jit, types, void
-from scipy.constants import (Boltzmann, c, e, elementary_charge, epsilon_0,
-                             hbar, m_n, mu_0)
-from scipy.integrate import solve_ivp
-
-from odeintw import odeintw
+from julia import Julia
+jl = Julia(["--optimize=3", "--compile=all"])
 
 
 @jit(nopython=True)
-def bresenham(x1, y1, x2, y2):
+def bresenham(x1: int, y1: int, x2: int, y2: int) -> list:
     """Bresenham's Line Algorithm
     Produces a list of tuples from start and end
 
@@ -69,22 +70,39 @@ def bresenham(x1, y1, x2, y2):
     return points
 
 
-def N(T):
+def N(T: float) -> float:
+    """Atomic density as a function of temperature. 
+    From Siddons et al. 2008 
+    "Absolute absorption on rubidium D lines: comparison between theory and experiment"
+
+    Args:
+        T (float): Temperature in K
+
+    Returns:
+        float: Atomic density in m^-3
+    """
     P_v = 10**(15.88253 - 4529.635/T + 0.00058663*T - 2.99138*np.log10(T))
     return 133.323*P_v/(Boltzmann*T)
 
 
-def beta_n(T):
-    return 2*np.pi*1.03e-13*N(T=T)
+def fit(t: float, a: float, b: float, c: float) -> float:
+    """Exponential fit for response time analysis
 
+    Args:
+        t (float): Time in seconds
+        a (float): amplitude 
+        b (float): response time
+        c (float): offset
 
-def fit(t, a, b, c):
+    Returns:
+        float: The objective function
+    """
     return a*np.exp(-t/b) + c
 
 
 @jit(complex128[::1](float64, complex128[::1], complex128[::1], complex128[::1]),
      nopython=True, nogil=True, fastmath=True, cache=True)
-def deriv_notransit(t, x, p, dy):
+def deriv(t, x, p, dy):
     """Computes the differential term of MBE in the case of a 3 level system
     with one coupling field. The x vector represents the density matrix
     elements rho_11, 22, 21, 12, 31, 13, 32, 23. This function is
@@ -135,7 +153,7 @@ def deriv_notransit(t, x, p, dy):
 
 
 @jit(nopython=True, nogil=True, fastmath=True, cache=True)
-def deriv_notransit_mut(dy, x, p, t):
+def deriv_mut(dy, x, p, t):
     """Computes the differential term of MBE in the case of a 3 level system
     with one coupling field. The x vector represents the density matrix
     elements rho_11, 22, 21, 12, 31, 13, 32, 23. This function is
@@ -186,7 +204,7 @@ def deriv_notransit_mut(dy, x, p, t):
 
 @jit(complex128[:, ::1](float64, complex128[::1], complex128[::1], complex128[::1]),
      nopython=True, nogil=True, fastmath=True, cache=True)
-def deriv_notransit_jac(t, x, p, dy):
+def deriv_jac(t, x, p, dy):
     """Computes the differential term of MBE in the case of a 3 level system
     with one coupling field. The x vector represents the density matrix
     elements rho_11, 22, 21, 12, 31, 13, 32, 23. This function is
@@ -231,8 +249,24 @@ def deriv_notransit_jac(t, x, p, dy):
 
 class temporal_bloch:
 
-    def __init__(self, T, puiss, waist, detun, L, N_grid=128, N_v=20,
-                 N_real=20, N_proc=15):
+    def __init__(self, T: float, puiss: float, waist: float, detun: float, L: float,
+                 N_grid: int = 128, N_v: int = 20, N_real: int = 5000, N_proc: int = 15):
+        """Initializes all the parameters of the simulation and all hardtyped values.
+        Almost all attributes are defined as properties such that when changing core attributes 
+        of the experiment (power, waist, window size ...), all subsequent calls to properties 
+        will return the updated values.
+
+        Args:
+            T (float): Cell temperature in C
+            puiss (float): Input power in W
+            waist (float): Beam waist in m
+            detun (float): Laser detuning in Hz
+            L (float): Cell length in m
+            N_grid (int, optional): Number of grid points of the computational window. Defaults to 128.
+            N_v (int, optional): Number of velocity classes. Defaults to 20.
+            N_real (int, optional): Number of Monte-Carlo realizations. Defaults to 5000.
+            N_proc (int, optional): Number of CPU cores used. Defaults to 15.
+        """
         # grid params for MC
         self.N_grid = N_grid
         self.N_v = N_v
@@ -241,7 +275,6 @@ class temporal_bloch:
         self.L = L
         self.waist = waist
         self.window = 4*self.waist
-        # self.r0 = self.window/2
         self.detun = 2*np.pi*detun
         self.puiss = puiss
         self.frac = 0.995
@@ -261,8 +294,6 @@ class temporal_bloch:
         self.x0_short = np.array([self.G1 + 1j*0, self.G2 + 1j*0, 0, 0],
                                  dtype=np.complex128)
 
-    # all of this is defined as properties in order to be updated if a constant is
-    # changes
     @property
     def r0(self):
         return self.window/2
@@ -300,17 +331,21 @@ class temporal_bloch:
         return (self.E + 1j*0)*np.exp(-((self.X-self.r0)**2 + (self.Y-self.r0)**2)/(2*self.waist**2))
 
     @property
+    def I_map(self):
+        return self.I*np.exp(-((self.X-self.r0)**2 + (self.Y-self.r0)**2)/(2*self.waist**2))
+
+    @property
     def d(self):
         return np.sqrt(9*epsilon_0*hbar*self.Gamma * self.wl**3/(8*np.pi**2))
 
     @property
     def gamma_t_analytical(self):
-        return np.sqrt(2*Boltzmann*self.T/(self.m87*np.log(2)*np.pi*self.waist**2))
-    # self.gamma_t_analytical = self.u/(self.waist*np.sqrt(np.pi)) #formule à compléter!
+        # return np.sqrt(2*Boltzmann*self.T/(self.m87*np.log(2)*np.pi*self.waist**2))
+        return self.u/(self.waist*np.sqrt(np.pi))
 
     @property
     def gamma(self):
-        return self.Gamma/2 + self.gamma_t  # + beta_n(self.T)/2
+        return self.Gamma/2 + self.gamma_t
 
     @property
     def gamma_analytical(self):
@@ -326,7 +361,7 @@ class temporal_bloch:
 
     @property
     def gamma21tilde(self):
-        return self.gamma_t_analytical + 1j*self.delta0
+        return self.gamma_t + 1j*self.delta0
 
     @property
     def mu23(self):
@@ -345,7 +380,8 @@ class temporal_bloch:
         return self.E*self.mu13/hbar
 
     def propagate_field(self, chi: np.ndarray, dz: float):
-        """Propagates the field one dz step given a certain medium susceptibility chi
+        """Propagates the field one dz step given a certain medium susceptibility chi.
+        Needs a high resolution of the computational window to work.
 
         Args:
             chi (np.ndarray): Susceptibility
@@ -366,7 +402,16 @@ class temporal_bloch:
             np.pi*self.waist**2
         return self.E_map
 
-    def choose_points(self, plot=False):
+    def choose_points(self, plot=False) -> tuple:
+        """Chooses random start and end points.
+
+        Args:
+            plot (bool, optional): Plots the grid with generated poitns.
+            For debugging purpopses. Defaults to False.
+
+        Returns:
+            tuple(int): The 4 coordinates of the start and end points.
+        """
         edges = []
         for i in range(self.N_grid):
             edges.append((0, i))
@@ -388,1005 +433,23 @@ class temporal_bloch:
             plt.show()
         return iinit, jinit, ifinal, jfinal
 
-    def draw_vz(self, v):
+    def draw_vz(self, v: float) -> float:
+        """Draws the random velocity along z assuming a total velocity v.
+        Follow the 1D Maxwell-Boltzmann distribution.
+
+        Args:
+            v (float): Value of the total velocity in m/s
+
+        Returns:
+            float: The chosen velocity along z.
+        """
         vz = np.abs(2*v)
         while np.abs(vz) > np.abs(v):
             vz = np.random.normal(0, np.sqrt(Boltzmann*self.T/self.m87))
         return vz
 
-    def integrate_notransit(self, vz, v_perp, iinit, jinit, ifinal, jfinal, ynext):
-        # deriv_notransit_jul = Main.eval("""
-        # function f(dy, x, p, t)
-        #     v, u0, u1, xinit, yinit = p[1], p[2], p[3], p[4], p[5]
-        #     Gamma, Omega13, Omega23 = p[6], p[7], p[8]
-        #     gamma21tilde, gamma31tilde, gamma32tilde = p[9], p[10], p[11]
-        #     waist, r0 = p[12], p[13]
-        #     r_sq = (xinit+u0*v*t - r0)*(xinit+u0*v*t - r0) +\
-        #            (yinit+u1*v*t - r0)*(yinit+u1*v*t - r0)
-        #     Om23 = Omega23 * exp(-r_sq/(2*waist*waist))
-        #     Om13 = Omega13 * exp(-r_sq/(2*waist*waist))
-        #     dy[1] = (-Gamma/2)*x[1]-(Gamma/2)*x[2]+(im*conj(Om13)/2)*x[5]-(im*Om13/2)*x[6]+Gamma/2
-        #     dy[2] = (-Gamma/2)*x[1]-(Gamma/2)*x[2]+(im*conj(Om23)/2)*x[7]-(im*Om23/2)*x[8]+Gamma/2
-        #     dy[3] = -gamma21tilde*x[3]+(im*conj(Om23)/2)*x[5]-(im*Om13/2)*x[8]
-        #     dy[4] = -conj(gamma21tilde)*x[4] - (im*Om23/2)*x[6] + (im*conj(Om13)/2)*x[7]
-        #     dy[5] = im*Om13*x[1] + (im*Om13/2)*x[2] + (im*Om23/2)*x[3] - gamma31tilde*x[5]-im*Om13/2
-        #     dy[6] = -im*conj(Om13)*x[1]-im*(conj(Om13)/2)*x[2]-(im*conj(Om23)/2)*x[4]-conj(gamma31tilde)*x[6]+im*conj(Om13)/2
-        #     dy[7] = (im*Om23/2)*x[1]+im*Om23*x[2]+(im*Om13/2)*x[4]-gamma32tilde*x[7] - im*Om23/2
-        #     dy[8] = (-im*conj(Om23)/2)*x[1]-im*conj(Om23)*x[2]-(im*conj(Om13)/2)*x[3]-conj(gamma32tilde)*x[8]+im*conj(Om23)/2
-        # end""")
-        path = bresenham(jinit, iinit, jfinal, ifinal)
-        xinit = jinit*self.window/self.N_grid
-        yinit = iinit*self.window/self.N_grid
-        xfinal = jfinal*self.window/self.N_grid
-        yfinal = ifinal*self.window/self.N_grid
-        # velocity unit vector
-        if v_perp != 0:
-            u0 = xfinal-xinit
-            u1 = yfinal-yinit
-            norm = np.hypot(u0, u1)
-            u0 /= norm
-            u1 /= norm
-            t_path = np.array([np.hypot(_[1]-iinit, _[0]-jinit)
-                              * self.window/(self.N_grid*v_perp) for _ in path])
-        else:
-            u0 = u1 = 0
-            t_path = np.array([np.hypot(_[1]-iinit, _[0]-jinit)
-                              * self.window/(self.N_grid*np.abs(vz)) for _ in path])
-        tfinal = t_path[-1]
-        # print(f'tfinal = {tfinal*1e6} us')
-        # ts = np.arange(0, tfinal, 1e-10, dtype=np.float64)
-        ts = np.linspace(0, tfinal, 1000)
-        p = np.array([v_perp, u0, u1, xinit, yinit, self.Gamma, self.Omega13,
-                      self.Omega23, self.gamma21tilde,
-                      self.gamma31tilde - 1j*self.k*vz,
-                      self.gamma32tilde - 1j*self.k*vz, self.waist, self.r0],
-                     dtype=np.complex128)
-        ys, infodict = odeintw(deriv_notransit, self.x0, ts,
-                               args=(p, ynext),
-                               Dfun=deriv_notransit_jac,
-                               full_output=True, hmax=1e-2, hmin=1e-36,
-                               h0=1e-12, tfirst=True)
-        return ts, ys, path
-        # tspan = (0, tfinal)
-        # prob = de.ODEProblem(deriv_notransit_jul, self.x0, tspan, p,
-        #                      maxiters=1e8)
-        # sol = de.solve(prob, de.BS3(), saveat=ts)
-        # return np.array(sol.t, dtype=np.float64), \
-        #     np.array(sol.u, dtype=np.complex128), path
-
-    def do_N_real(self, v: float):
-        Main.eval(f"const N_real = {self.N_real}")
-        Main.eval(f"const N_grid = {self.N_grid}")
-        Main.eval(f"const T = {self.T}")
-        Main.eval(f"const window = {self.window}")
-        Main.eval(
-            f"const Gamma = {np.real(self.Gamma)}+{np.imag(self.Gamma)}*im")
-        Main.eval(
-            f"const Omega13 = {np.real(self.Omega13)}+{np.imag(self.Omega13)}*im")
-        Main.eval(
-            f"const Omega23 = {np.real(self.Omega23)}+{np.imag(self.Omega23)}*im")
-        Main.eval(
-            f"const gamma21tilde = {np.real(self.gamma21tilde)}+{np.imag(self.gamma21tilde)}*im")
-        Main.eval(
-            f"const gamma31tilde = {np.real(self.gamma31tilde)}+{np.imag(self.gamma31tilde)}*im")
-        Main.eval(
-            f"const gamma32tilde = {np.real(self.gamma32tilde)}+{np.imag(self.gamma32tilde)}*im")
-        Main.eval(f"const waist = {self.waist} + 0*im")
-        Main.eval(f"const r0 = {self.r0} + 0*im")
-        Main.eval(
-            f"const x0 = [{self.G1} + 0*im, {self.G2} + im*0, 0.0*im, 0.0*im, 0.0*im, 0.0*im, 0.0*im, 0.0*im]")
-        Main.eval(f"const k = {self.k}")
-        Main.eval(f"const v = {v}")
-        grid, counter_grid = Main.eval("""
-        using DifferentialEquations
-        using PyPlot
-
-        # global variables to be set from python side through Julia "Main" namespace
-        const m87 = 1.44316060e-25
-        const k_B = 1.38064852e-23
-        # function for line generation
-        function bresenham(x1::Int32, y1::Int32, x2::Int32, y2::Int32)
-
-            dx = x2 - x1
-            dy = y2 - y1
-
-            # Determine how steep the line is
-            is_steep = abs(dy) > abs(dx)
-
-            # Rotate line
-            if is_steep
-                x1, y1 = y1, x1
-                x2, y2 = y2, x2
-            end
-            # Swap start and end points if necessary and store swap state
-            swapped = false
-            if x1 > x2
-                x1, x2 = x2, x1
-                y1, y2 = y2, y1
-                swapped = true
-            end
-            # Recalculate differentials
-            dx = x2 - x1
-            dy = y2 - y1
-
-            # Calculate error
-            error = dx / 2
-            if y1 < y2
-                ystep = 1
-            else
-                ystep = -1
-            end
-
-            # Iterate over bounding box generating points between start and end
-            y = y1
-            points = []
-            for x in x1:x2+1
-                if is_steep
-                    coord = [y, x]
-                else
-                    coord = [x, y]
-                end
-                append!(points, [coord])
-                error -= abs(dy)
-                if error < 0
-                    y += ystep
-                    error += dx
-                end
-            end
-            # Reverse the list if the coordinates were swapped
-            if swapped
-                reverse!(points)
-            end
-            return points
-        end
-
-        function choose_points()
-            edges = Array{Tuple{Int32, Int32}, 1}(undef, 4*N_grid)
-            for i in 1:N_grid
-                edges[i] = (1, i)
-                edges[i+N_grid] = (N_grid, i)
-                edges[i+2*N_grid] = (i, 1)
-                edges[i+3*N_grid] = (i, N_grid)
-            end
-            iinit, jinit = edges[rand(1:length(edges), 1)][1]
-            ifinal, jfinal = iinit, jinit
-            cdtn = (ifinal == iinit) || (jfinal == jinit)
-            while cdtn
-                ifinal, jfinal = edges[rand(1:length(edges), 1)][1]
-                cdtn = (ifinal == iinit) || (jfinal == jinit)
-            end
-            return (iinit, jinit, ifinal, jfinal)
-        end
-
-        function draw_vz(v::Float64)::Float64
-            vz = abs(2*v)
-            while abs(vz) > abs(v)
-                vz = randn()*sqrt(k_B*T/m87)
-            end
-            return vz
-        end
-
-        function f!(dy, x, p, t)
-            v, u0, u1, xinit, yinit = p[1], p[2], p[3], p[4], p[5]
-            Gamma, Omega13, Omega23 = p[6], p[7], p[8]
-            gamma21tilde, gamma31tilde, gamma32tilde = p[9], p[10], p[11]
-            waist, r0 = p[12], p[13]
-            r_sq = (xinit+u0*v*t - r0)^2 + (yinit+u1*v*t - r0)^2
-            Om23 = Omega23 * exp(-r_sq/(2*waist*waist))
-            Om13 = Omega13 * exp(-r_sq/(2*waist*waist))
-            dy[1] = (-Gamma/2)*x[1]-(Gamma/2)*x[2]+(im*conj(Om13)/2)*x[5]-(im*Om13/2)*x[6]+Gamma/2
-            dy[2] = (-Gamma/2)*x[1]-(Gamma/2)*x[2]+(im*conj(Om23)/2)*x[7]-(im*Om23/2)*x[8]+Gamma/2
-            dy[3] = -gamma21tilde*x[3]+(im*conj(Om23)/2)*x[5]-(im*Om13/2)*x[8]
-            dy[4] = -conj(gamma21tilde)*x[4] - (im*Om23/2)*x[6] + (im*conj(Om13)/2)*x[7]
-            dy[5] = im*Om13*x[1] + (im*Om13/2)*x[2] + (im*Om23/2)*x[3] - gamma31tilde*x[5]-im*Om13/2
-            dy[6] = -im*conj(Om13)*x[1]-im*(conj(Om13)/2)*x[2]-(im*conj(Om23)/2)*x[4]-conj(gamma31tilde)*x[6]+im*conj(Om13)/2
-            dy[7] = (im*Om23/2)*x[1]+im*Om23*x[2]+(im*Om13/2)*x[4]-gamma32tilde*x[7] - im*Om23/2
-            dy[8] = (-im*conj(Om23)/2)*x[1]-im*conj(Om23)*x[2]-(im*conj(Om13)/2)*x[3]-conj(gamma32tilde)*x[8]+im*conj(Om23)/2
-        end
-
-        paths = [[] for i=1:N_real]
-        xs = [[] for i=1:N_real]
-        ts = [[] for i=1:N_real]
-        v_perps = zeros(Float64, N_real)
-        function prob_func(prob, i, repeat)
-            # change seed of random number generation as the solver uses multithreading
-            iinit, jinit, ifinal, jfinal = choose_points()
-            vz = draw_vz(v)
-            v_perp = sqrt(v^2 - vz^2)
-            xinit = jinit*window/N_grid
-            yinit = iinit*window/N_grid
-            xfinal = jfinal*window/N_grid
-            yfinal = ifinal*window/N_grid
-            # velocity unit vector
-            if v_perp != 0
-                u0 = xfinal-xinit
-                u1 = yfinal-yinit
-                norm = hypot(u0, u1)
-                u0 /= norm
-                u1 /= norm
-                new_tfinal = hypot((xfinal-xinit), (yfinal-yinit))/v_perp
-            else
-                u0 = u1 = 0
-                new_tfinal = hypot((xfinal-xinit), (yfinal-yinit))/abs(vz)
-            end
-            new_p = [v_perp + 0*im, u0 + 0*im, u1 + 0*im, xinit + 0*im, yinit + 0*im,
-                     Gamma, Omega13, Omega23, gamma21tilde, gamma31tilde - im*k*vz,
-                     gamma32tilde - im*k*vz, waist, r0]
-            new_tspan = (0.0, new_tfinal)
-            tsave = collect(LinRange(0.0, new_tfinal, 1000))
-            remake(prob, p=new_p, tspan=new_tspan, saveat=tsave)
-        end
-        # instantiate a problem
-        p = [1.0 + 0*im, 1.0 + 0*im, 1.0 + 0*im, 1.0 + 0*im, 1.0 + 0*im,
-             Gamma, Omega13,
-             Omega23, gamma21tilde,
-             gamma31tilde - im*k*0.0,
-             gamma32tilde - im*k*0.0, waist, r0]
-        tspan = (0.0, 1.0)
-        tsave = collect(LinRange(0.0, 1.0, 1000))
-        prob = ODEProblem{true}(f!, x0, tspan, p, saveat=tsave)
-        ensembleprob = EnsembleProblem(prob, prob_func=prob_func)
-        sol = solve(ensembleprob, rodas4(autodiff=false), EnsembleThreads(), trajectories=N_real, maxiters=Int(1e8))
-        for i in 1:N_real
-            xs[i] = sol[i].u
-            ts[i] = sol[i].t
-            v_perps[i] = sol[i].prob.p[1]
-            local u0 = sol[i].prob.p[2]
-            local u1 = sol[i].prob.p[3]
-            local xinit = sol[i].prob.p[4]
-            local yinit = sol[i].prob.p[5]
-            local tfinal = sol[i].prob.tspan[2]
-            local xfinal = xinit+u0*v_perps[i]*tfinal
-            local yfinal = yinit+u1*v_perps[i]*tfinal
-            local iinit = Int32(round(real(yinit)*(N_grid/window), digits=1))
-            local jinit = Int32(round(real(xinit)*(N_grid/window), digits=1))
-            local ifinal = Int32(round(real(yfinal)*(N_grid/window), digits=1))
-            local jfinal = Int32(round(real(xfinal)*(N_grid/window), digits=1))
-            local path = bresenham(jinit, iinit, jfinal, ifinal)
-            paths[i] = path
-        end
-        # Reformat xs as a proper multidimensional Array for easier indexing
-        Xs = zeros(ComplexF64, (N_real, length(ts[1]), 8))
-        for i = 1:N_real
-            for j = 1:length(ts[i])
-                for k in 1:8
-                    Xs[i, j , k] = xs[i][j][k]
-                end
-            end
-        end
-        xs = nothing
-        # define empty grid to accumulate the trajectories of the atoms and count them
-        grid = zeros(ComplexF64, (N_grid, N_grid))
-        counter_grid = zeros(Int32, (N_grid, N_grid))
-        for i = 1:N_real
-            local iinit = paths[i][1][1]
-            local jinit = paths[i][1][2]
-            for coord in paths[i]
-                if coord[1] > N_grid-1
-                    coord[1] = N_grid-1
-                end
-                if coord[2] > N_grid-1
-                    coord[2] = N_grid-1
-                end
-                if coord[1] < 1
-                    coord[1] = 1
-                end
-                if coord[2] < 1
-                    coord[2] = 1
-                end
-                tpath = hypot(coord[2]-iinit, coord[1]-jinit)*window/(v_perps[i]*N_grid)
-                grid[coord[2], coord[1]] += real(Xs[i, argmin(abs.([ts[i][k]-tpath for k=1:length(ts[i])])), 7])
-                counter_grid[coord[2], coord[1]] += 1
-            end
-        end
-        [grid, counter_grid]
-        """)
-        return grid, counter_grid
-
-    def chi_analytical(self, v):
-        a = (self.Gamma/2)/self.gamma_analytical
-        b = self.gamma_t_analytical/self.gamma_analytical
-        fac = np.sqrt(2*b*(1+a)/(1+b))
-        Es0 = fac*hbar*self.gamma_analytical/self.mu23
-        Is0 = 0.5*epsilon_0*c*Es0**2
-        Delta = self.detun + self.k*v
-        Is = Is0*(1 + (Delta/self.gamma_analytical)**2)
-        # print(f"{Is=}")
-        Es = np.sqrt(2*Is/(epsilon_0*c))
-        pref = self.G2*N(self.T)/(epsilon_0*hbar) * \
-            abs(self.mu23)**2/self.gamma_analytical
-        chi = pref * (1j-Delta/self.gamma_analytical) / \
-            (1+(Delta/self.gamma_analytical)**2 + (self.E/Es0)**2)
-        return chi
-
-    def do_V_span(self, v0: float, v1: float, N_v: int):
-        Main.eval(f"global N_v = {N_v}")
-        Main.eval(f"global v0 = {v0}")
-        Main.eval(f"global v1 = {v1}")
-        Main.eval(f"global N_real = {self.N_real}")
-        Main.eval(f"global N_grid = {self.N_grid}")
-        Main.eval(f"global T = {self.T}")
-        Main.eval(f"global window = {self.window}")
-        Main.eval(
-            f"global Gamma = {np.real(self.Gamma)}+{np.imag(self.Gamma)}*im")
-        Main.eval(
-            f"global Omega13 = {np.real(self.Omega13)}+{np.imag(self.Omega13)}*im")
-        Main.eval(
-            f"global Omega23 = {np.real(self.Omega23)}+{np.imag(self.Omega23)}*im")
-        Main.eval(
-            f"global gamma21tilde = {np.real(self.gamma21tilde)}+{np.imag(self.gamma21tilde)}*im")
-        Main.eval(
-            f"global gamma31tilde = {np.real(self.gamma31tilde)}+{np.imag(self.gamma31tilde)}*im")
-        Main.eval(
-            f"global gamma32tilde = {np.real(self.gamma32tilde)}+{np.imag(self.gamma32tilde)}*im")
-        Main.eval(f"global waist = {self.waist} + 0*im")
-        Main.eval(f"global r0 = {self.r0} + 0*im")
-        Main.eval(
-            f"global x0 = [{self.G1} + 0*im, {self.G2} + im*0, 0.0*im, 0.0*im, 0.0*im, 0.0*im, 0.0*im, 0.0*im]")
-        Main.eval(f"global k = {self.k}")
-        grid_weighted_13, grid_weighted_23, counter_grid = Main.eval("""
-        using OrdinaryDiffEq
-        using ProgressBars
-        using Distributions
-
-        const m87 = 1.44316060e-25
-        const k_B = 1.38064852e-23
-        const u = sqrt(2*k_B*T/m87)
-        const l = u*(1/abs(Gamma))
-
-        function bresenham(x1::Int32, y1::Int32, x2::Int32, y2::Int32)::Array{Array{Int32, 1}, 1}
-
-            dx = x2 - x1
-            dy = y2 - y1
-
-            # Determine how steep the line is
-            is_steep = abs(dy) > abs(dx)
-
-            # Rotate line
-            if is_steep
-                x1, y1 = y1, x1
-                x2, y2 = y2, x2
-            end
-            # Swap start and end points if necessary and store swap state
-            swapped = false
-            if x1 > x2
-                x1, x2 = x2, x1
-                y1, y2 = y2, y1
-                swapped = true
-            end
-            # Recalculate differentials
-            dx = x2 - x1
-            dy = y2 - y1
-
-            # Calculate error
-            error = dx / 2
-            if y1 < y2
-                ystep = 1
-            else
-                ystep = -1
-            end
-
-            # Iterate over bounding box generating points between start and end
-            y = y1
-            points = []
-            for x in x1:x2
-                if is_steep
-                    coord = [y, x]
-                else
-                    coord = [x, y]
-                end
-                append!(points, [coord])
-                error -= abs(dy)
-                if error < 0
-                    y += ystep
-                    error += dx
-                end
-            end
-            # Reverse the list if the coordinates were swapped
-            if swapped
-                reverse!(points)
-            end
-            return points
-        end
-
-        function choose_points()
-            edges = Array{Tuple{Int32, Int32}, 1}(undef, 4*N_grid)
-            for i in 1:N_grid
-                edges[i] = (1, i)
-                edges[i+N_grid] = (N_grid, i)
-                edges[i+2*N_grid] = (i, 1)
-                edges[i+3*N_grid] = (i, N_grid)
-            end
-            iinit, jinit = edges[rand(1:length(edges), 1)][1]
-            ifinal, jfinal = iinit, jinit
-            cdtn = (ifinal == iinit) || (jfinal == jinit)
-            while cdtn
-                ifinal, jfinal = edges[rand(1:length(edges), 1)][1]
-                cdtn = (ifinal == iinit) || (jfinal == jinit)
-            end
-            return (iinit, jinit, ifinal, jfinal)
-        end
-
-        function draw_vz(v::Float64)::Float64
-            vz = abs(2*v)
-            while abs(vz) > abs(v)
-                vz = randn()*sqrt(k_B*T/m87)
-            end
-            return vz
-        end
-
-        @inbounds begin
-        @fastmath begin
-        function f!(dy::Array{ComplexF64, 1}, x::Array{ComplexF64, 1},
-                    p::Array{ComplexF64, 1}, t::Float64)
-            # tcol = p[14]
-            # ncol = p[15]
-            r_sq = (p[4]+p[2]*p[1]*t - p[13])^2 + (p[5]+p[3]*p[1]*t - p[13])^2
-            Om23 = p[8] * exp(-r_sq/(2.0*p[12]*p[12]))
-            Om13 = p[7] * exp(-r_sq/(2.0*p[12]*p[12]))
-            # if t>=abs(p[14]) && abs(p[15])==0
-            #     dy[1] = (-p[6]/2.0)*x[1]-(p[6]/2.0)*x[2]+(im*conj(Om13)/2.0)*x[5]-(im*Om13/2)*x[6]+p[6]/2.0
-            #     dy[2] = (-p[6]/2.0)*x[1]-(p[6]/2.0)*x[2]+(im*conj(Om23)/2.0)*x[7]-(im*Om23/2)*x[8]+p[6]/2.0
-            #     dy[3] = 0.0 + 0.0*im
-            #     dy[4] = 0.0 + 0.0*im
-            #     dy[5] = 0.0 + 0.0*im
-            #     dy[6] = 0.0 + 0.0*im
-            #     dy[7] = 0.0 + 0.0*im
-            #     dy[8] = 0.0 + 0.0*im
-            #     p[15] += 1.0 + 0.0*im
-            # else 
-            dy[1] = (-p[6]/2.0)*x[1]-(p[6]/2.0)*x[2]+(im*conj(Om13)/2.0)*x[5]-(im*Om13/2)*x[6]+p[6]/2.0
-            dy[2] = (-p[6]/2.0)*x[1]-(p[6]/2.0)*x[2]+(im*conj(Om23)/2.0)*x[7]-(im*Om23/2)*x[8]+p[6]/2.0
-            dy[3] = -p[9]*x[3]+(im*conj(Om23)/2.0)*x[5]-(im*Om13/2.0)*x[8]
-            dy[4] = -conj(p[9])*x[4] - (im*Om23/2.0)*x[6] + (im*conj(Om13)/2.0)*x[7]
-            dy[5] = im*Om13*x[1] + (im*Om13/2.0)*x[2] + (im*Om23/2.0)*x[3] - p[10]*x[5]-im*Om13/2.0
-            dy[6] = -im*conj(Om13)*x[1]-im*(conj(Om13)/2.0)*x[2]-(im*conj(Om23)/2.0)*x[4]-conj(p[10])*x[6]+im*conj(Om13)/2.0
-            dy[7] = (im*Om23/2.0)*x[1]+im*Om23*x[2]+(im*Om13/2.0)*x[4]-p[11]*x[7] - im*Om23/2.0
-            dy[8] = (-im*conj(Om23)/2.0)*x[1]-im*conj(Om23)*x[2]-(im*conj(Om13)/2.0)*x[3]-conj(p[11])*x[8]+im*conj(Om23)/2.0
-            # end
-        end
-        end
-        end
-
-
-        @inbounds begin
-        @fastmath begin
-        function f_jac!(J::Array{ComplexF64, 2}, x::Array{ComplexF64, 1},
-                    p::Array{ComplexF64, 1}, t::Float64)
-            r_sq = (p[4]+p[2]*p[1]*t - p[13])^2 + (p[5]+p[3]*p[1]*t - p[13])^2
-            Om23 = p[8] * exp(-r_sq/(2*p[12]*p[12]))
-            Om13 = p[7] * exp(-r_sq/(2*p[12]*p[12]))
-            J[1, 1] = -p[6]/2.0
-            J[1, 2] = -p[6]/2.0
-            J[1, 3] = 0.0 * im
-            J[1, 4] = 0.0 * im
-            J[1, 5] = im*conj(Om13)/2.0
-            J[1, 6] = -im*Om13/2.0
-            J[1, 7] = 0.0 * im
-            J[1, 8] = 0.0 * im
-            J[2, 1] = (-p[6]/2.0)
-            J[2, 2] = -(p[6]/2.0)
-            J[2, 3] = 0.0 * im
-            J[2, 4] = 0.0 * im
-            J[2, 5] = 0.0 * im
-            J[2, 6] = 0.0 * im
-            J[2, 7] = im*conj(Om23)/2.0
-            J[2, 8] = -im*Om23/2.0
-            J[3 ,1] = 0.0 * im
-            J[3 ,2] = 0.0 * im
-            J[3, 3] = -p[9]
-            J[3 ,4] = 0.0 * im
-            J[3, 5] = im*conj(Om23)/2.0
-            J[3 ,6] = 0.0 * im
-            J[3 ,7] = 0.0 * im
-            J[3, 8] = -im*Om13/2.0
-            J[4, 1] = 0.0 * im
-            J[4, 2] = 0.0 * im
-            J[4, 3] = 0.0 * im
-            J[4, 4] = -conj(p[9])
-            J[4, 5] = 0.0 * im
-            J[4, 6] = -im*Om23/2.0
-            J[4, 7] = im*conj(Om13)/2.0
-            J[4, 8] = 0.0 * im
-            J[5, 1] = im*Om13
-            J[5, 2] = im*Om13/2.0
-            J[5, 3] = im*Om23/2.0
-            J[5, 4] = 0.0 * im
-            J[5, 5] = - p[10]
-            J[5, 6] = 0.0 * im
-            J[5, 7] = 0.0 * im
-            J[5, 8] = 0.0 * im
-            J[6, 1] = -im*conj(Om13)
-            J[6, 2] = -im*(conj(Om13)/2.0)
-            J[6, 3] = 0.0 * im
-            J[6, 4] = -(im*conj(Om23)/2.0)
-            J[6, 5] = 0.0 * im
-            J[6, 6] = -conj(p[10])
-            J[6, 7] = 0.0 * im
-            J[6, 8] = 0.0 * im
-            J[7, 1] = (im*Om23/2.0)
-            J[7, 2] = im*Om23
-            J[7, 3] = 0.0 * im
-            J[7, 4] = im*Om13/2.0
-            J[7, 5] = 0.0 * im
-            J[7, 6] = 0.0 * im
-            J[7, 7] = -p[11]
-            J[7, 8] = 0.0 * im
-            J[8, 1] = -im*conj(Om23)/2.0
-            J[8, 2] = -im*conj(Om23)
-            J[8, 3] = -im*conj(Om13)/2.0
-            J[8, 4] = 0.0 * im
-            J[8, 5] = 0.0 * im
-            J[8, 6] = 0.0 * im
-            J[8, 7] = 0.0 * im
-            J[8, 8] = -conj(p[11])
-        end
-        end
-        end
-
-        
-
-        grid_13 = zeros(ComplexF64, (N_grid, N_grid))
-        grid_23 = zeros(ComplexF64, (N_grid, N_grid))
-        counter_grid = zeros(Int32, (N_grid, N_grid))
-        counter_grid_total = zeros(Int32, (N_grid, N_grid))
-        grid_weighted_13 = zeros(ComplexF64, (N_grid, N_grid))
-        grid_weighted_23 = zeros(ComplexF64, (N_grid, N_grid))
-        normalized = zeros(Float64, (N_grid, N_grid))
-        Vs = collect(LinRange{Float64}(v0, v1, N_v))
-        pv = sqrt(2.0/pi)*((m87/(k_B*T))^(3.0/2.0)).*Vs.^2.0 .*exp.(-m87*Vs.^2.0/(2.0*k_B*T))
-        v_perps = zeros(Float64, N_real)
-        global coords = Array{Tuple{Int32, Int32, Int32, Int32}}(undef, N_real)
-        for (index_v, v) in ProgressBar(enumerate(Vs))
-            global paths = [[] for i=1:N_real]
-            global tpaths = [[] for i=1:N_real]
-            # global t_colls = rand(Exponential(l), N_real)
-            global t_colls = zeros(Float64, N_real)
-            # Choose points in advance to save only the relevant points during solving
-            Threads.@threads for i = 1:N_real
-                iinit, jinit, ifinal, jfinal = choose_points()
-                coords[i] = (iinit, jinit, ifinal, jfinal)
-                paths[i] = bresenham(jinit, iinit, jfinal, ifinal)
-                v_perps[i] = sqrt(v^2.0 - draw_vz(v)^2.0)
-                tpaths[i] = sort(Float64[hypot(coord[2]-iinit, coord[1]-jinit)*abs(window)/(v_perps[i]*N_grid) for coord in paths[i]])
-            end
-            function prob_func(prob, i, repeat)
-                iinit, jinit, ifinal, jfinal = coords[i]
-                v_perp = v_perps[i]
-                vz = sqrt(v^2.0 - v_perp^2.0)
-                xinit = jinit*window/N_grid
-                yinit = iinit*window/N_grid
-                xfinal = jfinal*window/N_grid
-                yfinal = ifinal*window/N_grid
-                # velocity unit vector
-                if v_perp != 0
-                    u0 = xfinal-xinit
-                    u1 = yfinal-yinit
-                    norm = hypot(u0, u1)
-                    u0 /= norm
-                    u1 /= norm
-                else
-                    u0 = u1 = 0
-                end
-                new_p = ComplexF64[v_perp + 0.0*im, u0 + 0.0*im, u1 + 0.0*im,
-                        xinit + 0.0*im, yinit + 0.0*im,
-                        Gamma, Omega13, Omega23, gamma21tilde, gamma31tilde - im*k*vz,
-                        gamma32tilde - im*k*vz, waist, r0, t_colls[i], 0.0*im]
-                remake(prob, p=new_p, tspan=(0.0, maximum(tpaths[i])), saveat=tpaths[i])
-
-            end
-
-            function prob_func_gpu(prob, i, repeat)
-                iinit, jinit, ifinal, jfinal = coords[i]
-                v_perp = v_perps[i]
-                vz = sqrt(v^2.0 - v_perp^2.0)
-                xinit = jinit*window/N_grid
-                yinit = iinit*window/N_grid
-                xfinal = jfinal*window/N_grid
-                yfinal = ifinal*window/N_grid
-                # velocity unit vector
-                if v_perp != 0
-                    u0 = xfinal-xinit
-                    u1 = yfinal-yinit
-                    norm = hypot(u0, u1)
-                    u0 /= norm
-                    u1 /= norm
-                else
-                    u0 = u1 = 0
-                end
-                new_p = ComplexF64[v_perp + 0.0*im, u0 + 0.0*im, u1 + 0.0*im,
-                        xinit + 0.0*im, yinit + 0.0*im,
-                        Gamma, Omega13, Omega23, gamma21tilde, gamma31tilde - im*k*vz,
-                        gamma32tilde - im*k*vz, waist, r0, t_colls[i], 0.0*im]
-                remake(prob, p=new_p, tspan=(0.0, sqrt(2)*window/v), saveat=tpaths[i])
-
-            end
-
-            # instantiate a problem
-            p = ComplexF64[1.0 + 0.0*im, 1.0 + 0.0*im, 1.0 + 0.0*im, 1.0 + 0.0*im, 1.0 + 0.0*im,
-                Gamma, Omega13,
-                Omega23, gamma21tilde,
-                gamma31tilde - im*k*0.0,
-                gamma32tilde - im*k*0.0, waist, r0, 1.0, 0]
-            tspan = (0.0, 1.0)
-            tsave = collect(LinRange{Float64}(tspan[1], tspan[2], 2))
-            prob = ODEProblem{true}(f!, x0, tspan, p, jac=f_jac!, saveat=tsave)
-            ensembleprob = EnsembleProblem(prob, prob_func=prob_func)
-            # select appropriate solver for optimal stability
-            # if abs(waist) > 1e-3
-            #     alg = Rodas5(autodiff=false)
-            #     atol = 1e-7
-            #     rtol = 1e-6
-            # else
-            #     alg = TRBDF2(autodiff=false)
-            #     atol = 1e-10
-            #     rtol = 1e-8
-            # end
-            alg = Rodas5(autodiff=false)
-            atol = 1e-8
-            rtol = 1e-6
-            # run once on small system to try and speed up compile time
-            if index_v==1
-                sol = solve(ensembleprob, alg, EnsembleThreads(),
-                                trajectories=2, save_idxs=[5,7], abstol=atol, reltol=rtol, maxiters=Int(1e8))
-            end
-            sol = solve(ensembleprob, alg, EnsembleThreads(),
-                            trajectories=N_real, save_idxs=[5,7], abstol=atol, reltol=rtol, maxiters=Int(1e8))
-            global grid_13 .= zeros(ComplexF64, (N_grid, N_grid))
-            global grid_23 .= zeros(ComplexF64, (N_grid, N_grid))
-            global counter_grid .= zeros(Int32, (N_grid, N_grid))
-            @inbounds begin
-            Threads.@threads for i = 1:N_real
-                for (j, coord) in enumerate(paths[i])
-                    grid_13[coord[2], coord[1]] += sol[i].u[j][1]
-                    grid_23[coord[2], coord[1]] += sol[i].u[j][2]
-                    counter_grid[coord[2], coord[1]] += 1
-                end
-            end
-            end
-            grid_weighted_13 .+= (grid_13./counter_grid) * pv[index_v] * abs(Vs[2]-Vs[1])
-            grid_weighted_23 .+= (grid_23./counter_grid) * pv[index_v] * abs(Vs[2]-Vs[1])
-            # grid_weighted .+= grid * pv[index_v]
-            counter_grid_total .+= counter_grid
-            
-        end
-
-        [grid_weighted_13, grid_weighted_23, counter_grid_total]
-        """)
-        grid_weighted = 2*N(self.T) * (np.abs(self.mu13) * grid_weighted_13 + np.abs(self.mu23) * grid_weighted_23) / (self.E * epsilon_0)
-        return grid_weighted, counter_grid
-
-    def do_V_span_pop(self, v0: float, v1: float, N_v: int):
-        Main.eval(f"global N_v = {N_v}")
-        Main.eval(f"global v0 = {v0}")
-        Main.eval(f"global v1 = {v1}")
-        Main.eval(f"global N_real = {self.N_real}")
-        Main.eval(f"global N_grid = {self.N_grid}")
-        Main.eval(f"global T = {self.T}")
-        Main.eval(f"global window = {self.window}")
-        Main.eval(
-            f"global Gamma = {np.real(self.Gamma)}+{np.imag(self.Gamma)}*im")
-        Main.eval(
-            f"global Omega13 = {np.real(self.Omega13)}+{np.imag(self.Omega13)}*im")
-        Main.eval(
-            f"global Omega23 = {np.real(self.Omega23)}+{np.imag(self.Omega23)}*im")
-        Main.eval(
-            f"global gamma21tilde = {np.real(self.gamma21tilde)}+{np.imag(self.gamma21tilde)}*im")
-        Main.eval(
-            f"global gamma31tilde = {np.real(self.gamma31tilde)}+{np.imag(self.gamma31tilde)}*im")
-        Main.eval(
-            f"global gamma32tilde = {np.real(self.gamma32tilde)}+{np.imag(self.gamma32tilde)}*im")
-        Main.eval(f"global waist = {self.waist} + 0*im")
-        Main.eval(f"global r0 = {self.r0} + 0*im")
-        Main.eval(
-            f"global x0 = [{self.G1} + 0*im, {self.G2} + im*0, 0.0*im, 0.0*im, 0.0*im, 0.0*im, 0.0*im, 0.0*im]")
-        Main.eval(f"global k = {self.k}")
-        grid_pop_weighted, grid_coh_weighted, counter_grid = Main.eval("""
-        using OrdinaryDiffEq
-        using ProgressBars
-        using Distributions
-
-        const m87 = 1.44316060e-25
-        const k_B = 1.38064852e-23
-        const u = sqrt(2*k_B*T/m87)
-        const l = u*(1/abs(Gamma))
-
-        function bresenham(x1::Int32, y1::Int32, x2::Int32, y2::Int32)::Array{Array{Int32, 1}, 1}
-
-            dx = x2 - x1
-            dy = y2 - y1
-
-            # Determine how steep the line is
-            is_steep = abs(dy) > abs(dx)
-
-            # Rotate line
-            if is_steep
-                x1, y1 = y1, x1
-                x2, y2 = y2, x2
-            end
-            # Swap start and end points if necessary and store swap state
-            swapped = false
-            if x1 > x2
-                x1, x2 = x2, x1
-                y1, y2 = y2, y1
-                swapped = true
-            end
-            # Recalculate differentials
-            dx = x2 - x1
-            dy = y2 - y1
-
-            # Calculate error
-            error = dx / 2
-            if y1 < y2
-                ystep = 1
-            else
-                ystep = -1
-            end
-
-            # Iterate over bounding box generating points between start and end
-            y = y1
-            points = []
-            for x in x1:x2
-                if is_steep
-                    coord = [y, x]
-                else
-                    coord = [x, y]
-                end
-                append!(points, [coord])
-                error -= abs(dy)
-                if error < 0
-                    y += ystep
-                    error += dx
-                end
-            end
-            # Reverse the list if the coordinates were swapped
-            if swapped
-                reverse!(points)
-            end
-            return points
-        end
-
-        function choose_points()
-            edges = Array{Tuple{Int32, Int32}, 1}(undef, 4*N_grid)
-            for i in 1:N_grid
-                edges[i] = (1, i)
-                edges[i+N_grid] = (N_grid, i)
-                edges[i+2*N_grid] = (i, 1)
-                edges[i+3*N_grid] = (i, N_grid)
-            end
-            iinit, jinit = edges[rand(1:length(edges), 1)][1]
-            ifinal, jfinal = iinit, jinit
-            cdtn = (ifinal == iinit) || (jfinal == jinit)
-            while cdtn
-                ifinal, jfinal = edges[rand(1:length(edges), 1)][1]
-                cdtn = (ifinal == iinit) || (jfinal == jinit)
-            end
-            return (iinit, jinit, ifinal, jfinal)
-        end
-
-        function draw_vz(v::Float64)::Float64
-            vz = abs(2*v)
-            while abs(vz) > abs(v)
-                vz = randn()*sqrt(k_B*T/m87)
-            end
-            return vz
-        end
-
-        @inbounds begin
-        @fastmath begin
-        function f!(dy::Array{ComplexF64, 1}, x::Array{ComplexF64, 1},
-                    p::Array{ComplexF64, 1}, t::Float64)
-            # tcol = p[14]
-            # ncol = p[15]
-            r_sq = (p[4]+p[2]*p[1]*t - p[13])^2 + (p[5]+p[3]*p[1]*t - p[13])^2
-            Om23 = p[8] * exp(-r_sq/(2.0*p[12]*p[12]))
-            Om13 = p[7] * exp(-r_sq/(2.0*p[12]*p[12]))
-            if t>=abs(p[14]) && abs(p[15])==0
-                dy[1] = (-p[6]/2.0)*x[1]-(p[6]/2.0)*x[2]+(im*conj(Om13)/2.0)*x[5]-(im*Om13/2)*x[6]+p[6]/2.0
-                dy[2] = (-p[6]/2.0)*x[1]-(p[6]/2.0)*x[2]+(im*conj(Om23)/2.0)*x[7]-(im*Om23/2)*x[8]+p[6]/2.0
-                dy[3] = 0.0 + 0.0*im
-                dy[4] = 0.0 + 0.0*im
-                dy[5] = 0.0 + 0.0*im
-                dy[6] = 0.0 + 0.0*im
-                dy[7] = 0.0 + 0.0*im
-                dy[8] = 0.0 + 0.0*im
-                p[15] += 1.0 + 0.0*im
-            else 
-                dy[1] = (-p[6]/2.0)*x[1]-(p[6]/2.0)*x[2]+(im*conj(Om13)/2.0)*x[5]-(im*Om13/2)*x[6]+p[6]/2.0
-                dy[2] = (-p[6]/2.0)*x[1]-(p[6]/2.0)*x[2]+(im*conj(Om23)/2.0)*x[7]-(im*Om23/2)*x[8]+p[6]/2.0
-                dy[3] = -p[9]*x[3]+(im*conj(Om23)/2.0)*x[5]-(im*Om13/2.0)*x[8]
-                dy[4] = -conj(p[9])*x[4] - (im*Om23/2.0)*x[6] + (im*conj(Om13)/2.0)*x[7]
-                dy[5] = im*Om13*x[1] + (im*Om13/2.0)*x[2] + (im*Om23/2.0)*x[3] - p[10]*x[5]-im*Om13/2.0
-                dy[6] = -im*conj(Om13)*x[1]-im*(conj(Om13)/2.0)*x[2]-(im*conj(Om23)/2.0)*x[4]-conj(p[10])*x[6]+im*conj(Om13)/2.0
-                dy[7] = (im*Om23/2.0)*x[1]+im*Om23*x[2]+(im*Om13/2.0)*x[4]-p[11]*x[7] - im*Om23/2.0
-                dy[8] = (-im*conj(Om23)/2.0)*x[1]-im*conj(Om23)*x[2]-(im*conj(Om13)/2.0)*x[3]-conj(p[11])*x[8]+im*conj(Om23)/2.0
-            end
-        end
-        end
-        end
-
-
-        @inbounds begin
-        @fastmath begin
-        function f_jac!(J::Array{ComplexF64, 2}, x::Array{ComplexF64, 1},
-                    p::Array{ComplexF64, 1}, t::Float64)
-            r_sq = (p[4]+p[2]*p[1]*t - p[13])^2 + (p[5]+p[3]*p[1]*t - p[13])^2
-            Om23 = p[8] * exp(-r_sq/(2*p[12]*p[12]))
-            Om13 = p[7] * exp(-r_sq/(2*p[12]*p[12]))
-            J[1, 1] = (-p[6]/2.0)
-            J[1, 2] = -(p[6]/2.0)
-            J[1, 3] = 0.0 * im
-            J[1, 4] = 0.0 * im
-            J[1, 5] = (im*conj(Om13)/2.0)
-            J[1, 6] = -(im*Om13/2.0)
-            J[1, 7] = 0.0 * im
-            J[1, 8] = 0.0 * im
-            J[2, 1] = (-p[6]/2.0)
-            J[2, 2] = -(p[6]/2.0)
-            J[2, 3] = 0.0 * im
-            J[2, 4] = 0.0 * im
-            J[2, 5] = 0.0 * im
-            J[2, 6] = 0.0 * im
-            J[2, 7] = (im*conj(Om23)/2.0)
-            J[2, 8] = -(im*Om23/2.0)
-            J[3 ,1] = 0.0 * im
-            J[3 ,2] = 0.0 * im
-            J[3, 3] = -p[9]
-            J[3 ,4] = 0.0 * im
-            J[3, 5] = (im*conj(Om23)/2.0)
-            J[3 ,6] = 0.0 * im
-            J[3 ,7] = 0.0 * im
-            J[3, 8] = -(im*Om13/2.0)
-            J[4, 1] = 0.0 * im
-            J[4, 2] = 0.0 * im
-            J[4, 3] = 0.0 * im
-            J[4, 4] = -conj(p[9])
-            J[4, 5] = 0.0 * im
-            J[4, 6] = -(im*Om23/2.0)
-            J[4, 7] = (im*conj(Om13)/2.0)
-            J[4, 8] = 0.0 * im
-            J[5, 1] = im*Om13
-            J[5, 2] = (im*Om13/2.0)
-            J[5, 3] = (im*Om23/2.0)
-            J[5, 4] = 0.0 * im
-            J[5, 5] = - p[10]
-            J[5, 6] = 0.0 * im
-            J[5, 7] = 0.0 * im
-            J[5, 8] = 0.0 * im
-            J[6, 1] = -im*conj(Om13)
-            J[6, 2] = -im*(conj(Om13)/2.0)
-            J[6, 3] = 0.0 * im
-            J[6, 4] = -(im*conj(Om23)/2.0)
-            J[6, 5] = 0.0 * im
-            J[6, 6] = -conj(p[10])
-            J[6, 7] = 0.0 * im
-            J[6, 8] = 0.0 * im
-            J[7, 1] = (im*Om23/2.0)
-            J[7, 2] = +im*Om23*x[2]
-            J[7, 3] = 0.0 * im
-            J[7, 4] = +(im*Om13/2.0)
-            J[7, 5] = 0.0 * im
-            J[7, 6] = 0.0 * im
-            J[7, 7] = -p[11]
-            J[7, 8] = 0.0 * im
-            J[8, 1] = (-im*conj(Om23)/2.0)
-            J[8, 2] = -im*conj(Om23)
-            J[8, 3] = -(im*conj(Om13)/2.0)
-            J[8, 4] = 0.0 * im
-            J[8, 5] = 0.0 * im
-            J[8, 6] = 0.0 * im
-            J[8, 7] = 0.0 * im
-            J[8, 8] = -conj(p[11])
-        end
-        end
-        end
-
-        grid_pop = zeros(ComplexF64, (N_grid, N_grid))
-        grid_coh = zeros(ComplexF64, (N_grid, N_grid))
-        counter_grid = zeros(Int32, (N_grid, N_grid))
-        counter_grid_total = zeros(Int32, (N_grid, N_grid))
-        grid_pop_weighted = zeros(ComplexF64, (N_grid, N_grid))
-        grid_coh_weighted = zeros(ComplexF64, (N_grid, N_grid))
-        normalized = zeros(Float64, (N_grid, N_grid))
-        Vs = collect(LinRange{Float64}(v0, v1, N_v))
-        pv = sqrt(2.0/pi)*((m87/(k_B*T))^(3.0/2.0)).*Vs.^2.0 .*exp.(-m87*Vs.^2.0/(2.0*k_B*T))
-        v_perps = zeros(Float64, N_real)
-        global coords = Array{Tuple{Int32, Int32, Int32, Int32}}(undef, N_real)
-        for (index_v, v) in ProgressBar(enumerate(Vs))
-            global paths = [[] for i=1:N_real]
-            global tpaths = [[] for i=1:N_real]
-            # global t_colls = rand(Exponential(l), N_real)
-            global t_colls = zeros(Float64, N_real)
-            # Choose points in advanwaistse to save only the relevant points during solving
-            Threads.@threads for i = 1:N_real
-                iinit, jinit, ifinal, jfinal = choose_points()
-                coords[i] = (iinit, jinit, ifinal, jfinal)
-                paths[i] = bresenham(jinit, iinit, jfinal, ifinal)
-                v_perps[i] = sqrt(v^2.0 - draw_vz(v)^2.0)
-                tpaths[i] = sort(Float64[hypot(coord[2]-iinit, coord[1]-jinit)*abs(window)/(v_perps[i]*N_grid) for coord in paths[i]])
-            end
-            function prob_func(prob, i, repeat)
-                iinit, jinit, ifinal, jfinal = coords[i]
-                v_perp = v_perps[i]
-                vz = sqrt(v^2.0 - v_perp^2.0)
-                xinit = jinit*window/N_grid
-                yinit = iinit*window/N_grid
-                xfinal = jfinal*window/N_grid
-                yfinal = ifinal*window/N_grid
-                # velocity unit vector
-                if v_perp != 0
-                    u0 = xfinal-xinit
-                    u1 = yfinal-yinit
-                    norm = hypot(u0, u1)
-                    u0 /= norm
-                    u1 /= norm
-                else
-                    u0 = u1 = 0
-                end
-                new_p = ComplexF64[v_perp + 0.0*im, u0 + 0.0*im, u1 + 0.0*im,
-                        xinit + 0.0*im, yinit + 0.0*im,
-                        Gamma, Omega13, Omega23, gamma21tilde, gamma31tilde - im*k*vz,
-                        gamma32tilde - im*k*vz, waist, r0, t_colls[i], 0.0*im]
-                remake(prob, p=new_p, tspan=(0.0, maximum(tpaths[i])), saveat=tpaths[i])
-
-            end
-
-            # instantiate a problem
-            p = ComplexF64[1.0 + 0.0*im, 1.0 + 0.0*im, 1.0 + 0.0*im, 1.0 + 0.0*im, 1.0 + 0.0*im,
-                Gamma, Omega13,
-                Omega23, gamma21tilde,
-                gamma31tilde - im*k*0.0,
-                gamma32tilde - im*k*0.0, waist, r0, 1.0, 0]
-            tspan = (0.0, 1.0)
-            tsave = collect(LinRange{Float64}(tspan[1], tspan[2], 2))
-            prob = ODEProblem{true}(f!, x0, tspan, p, jac=f_jac!, saveat=tsave)
-            ensembleprob = EnsembleProblem(prob, prob_func=prob_func)
-            # select appropriate solver
-            # if abs(waist) > 0.75e-3
-            #     alg = Rodas5(autodiff=false)
-            #     atol = 1e-6
-            #     rtol = 1e-4
-            # else
-            #     alg = TRBDF2(autodiff=false)
-            #     atol = 1e-6
-            #     rtol = 1e-3
-            # end
-            alg = TRBDF2(autodiff=false)
-            atol = 1e-6
-            rtol = 1e-4
-            # run once on small system to try and speed up compile time
-            if index_v==1
-                sol = solve(ensembleprob, alg, EnsembleThreads(),
-                                trajectories=2, save_idxs=[1, 2, 7], abstol=atol, reltol=rtol)
-            end
-            sol = solve(ensembleprob, alg, EnsembleThreads(),
-                            trajectories=N_real, save_idxs=[1, 2, 7], abstol=atol, reltol=rtol)
-            global grid_pop .= zeros(ComplexF64, (N_grid, N_grid))
-            global grid_coh .= zeros(ComplexF64, (N_grid, N_grid))
-            global counter_grid .= zeros(Int32, (N_grid, N_grid))
-            @inbounds begin
-            Threads.@threads for i = 1:N_real
-                for (j, coord) in enumerate(paths[i])
-                    grid_pop[coord[2], coord[1]] += 1 - (sol[i].u[j][1] + sol[i].u[j][2])
-                    grid_coh[coord[2], coord[1]] += sol[i].u[j][3] 
-                    counter_grid[coord[2], coord[1]] += 1
-                end
-            end
-            end
-            grid_pop_weighted .+= (grid_pop./counter_grid) * pv[index_v] * abs(Vs[2]-Vs[1])
-            grid_coh_weighted .+= (grid_coh./counter_grid) * pv[index_v] * abs(Vs[2]-Vs[1])
-            counter_grid_total .+= counter_grid
-            
-        end
-
-        [grid_pop_weighted, grid_coh_weighted, counter_grid_total]
-        """)
-        return grid_pop_weighted, grid_coh_weighted, counter_grid
-
-    def integrate_short_notransit(self, v, ts, xinit, yinit, xfinal, yfinal):
-        # y, infodict = odeintw(self.deriv_notransit, self.x0, ts, args=(v,),
-        #             full_output=True, hmax=1e-6, hmin=1e-14, h0=1e-14)
-        # return ts, y, infodict
+    def integrate_short(self, v: float, ts: np.ndarray, xinit: float, yinit: float,
+                        xfinal: float, yfinal: float) -> tuple:
         Gamma = self.Gamma
         gamma32tilde = self.gamma32tilde + self.k*v
         Omega23 = self.Omega23
@@ -1415,3 +478,199 @@ class temporal_bloch:
         y = odeintw(self.deriv_short_notransit, self.x0_short, ts, args=(v,),
                     full_output=False, hmax=1e-4, hmin=2e-14, h0=2e-14)
         return ts, y
+
+    def integrate(self, vz: float, v_perp: float, iinit: int, jinit: int, ifinal: int,
+                  jfinal: int, ynext: np.ndarray) -> tuple:
+        """Integrates the MBE over one trajectory.
+
+        Args:
+            vz (float): Velocity of the atom over z
+            v_perp (float): Velocity of the atom in the xy plane
+            iinit (int): Initial position row
+            jinit (int): Initial position column
+            ifinal (int): Final position row
+            jfinal (int): Final position column
+            ynext (np.ndarray): Pre-allocated vector of size 8 when using the mutating 
+            function deriv_mut. Allows better speed.
+
+        Returns:
+            tuple(float, float, int): [description]
+        """
+        path = bresenham(jinit, iinit, jfinal, ifinal)
+        xinit = jinit*self.window/self.N_grid
+        yinit = iinit*self.window/self.N_grid
+        xfinal = jfinal*self.window/self.N_grid
+        yfinal = ifinal*self.window/self.N_grid
+        # velocity unit vector
+        if v_perp != 0:
+            u0 = xfinal-xinit
+            u1 = yfinal-yinit
+            norm = np.hypot(u0, u1)
+            u0 /= norm
+            u1 /= norm
+            t_path = np.array([np.hypot(_[1]-iinit, _[0]-jinit)
+                              * self.window/(self.N_grid*v_perp) for _ in path])
+        else:
+            u0 = u1 = 0
+            t_path = np.array([np.hypot(_[1]-iinit, _[0]-jinit)
+                              * self.window/(self.N_grid*np.abs(vz)) for _ in path])
+        tfinal = t_path[-1]
+        # print(f'tfinal = {tfinal*1e6} us')
+        # ts = np.arange(0, tfinal, 1e-10, dtype=np.float64)
+        p = np.array([v_perp, u0, u1, xinit, yinit, self.Gamma, self.Omega13,
+                      self.Omega23, self.gamma21tilde,
+                      self.gamma31tilde - 1j*self.k*vz,
+                      self.gamma32tilde - 1j*self.k*vz, self.waist, self.r0],
+                     dtype=np.complex128)
+        ys, infodict = odeintw(deriv, self.x0, t_path,
+                               args=(p, ynext),
+                               Dfun=deriv_jac,
+                               full_output=True, hmax=1e-7, hmin=1e-16,
+                               h0=1e-14, tfirst=True)
+        return t_path, ys, path
+
+    def chi_analytical(self, v: float) -> np.ndarray:
+        """Steady state susceptibility over the 2->3 transition in the far 
+        detuned approximation
+
+        Args:
+            v (float): Velocity class in m/s
+
+        Returns:
+            np.ndarray: The susceptibility map
+        """
+        a = (self.Gamma/2)/self.gamma_analytical
+        b = self.gamma_t_analytical/self.gamma_analytical
+        fac = np.sqrt(2*b*(1+a)/(1+b))
+        # Es0 = fac*hbar*self.gamma_analytical/self.mu23
+        gamma_analytical = self.gamma/2
+        Es0 = hbar*gamma_analytical/self.mu23
+        Is0 = 0.5*epsilon_0*c*Es0**2
+        Delta = self.detun + self.k*v
+        Is = Is0*(1 + (Delta/gamma_analytical)**2)
+        # print(f"{Is=}")
+        Es = np.sqrt(2*Is/(epsilon_0*c))
+        pref = self.G2*N(self.T)/(epsilon_0*hbar) * \
+            abs(self.mu23)**2/gamma_analytical
+        chi = pref * (1j-Delta/gamma_analytical) / \
+            (1+(Delta/gamma_analytical)**2 + (self.E_map/Es0)**2)
+        return chi
+
+    def chi_analytical_2(self, v: float) -> np.ndarray:
+        """Steady state susceptibility over the 2->3 / 1->3 transitions 
+        in the far detuned approximation
+
+        Args:
+            v (float): Velocity class in m/s
+
+        Returns:
+            np.ndarray: The susceptibility map
+        """
+        a = (self.Gamma/2)/self.gamma_analytical
+        b = self.gamma_t_analytical/self.gamma_analytical
+        fac = np.sqrt(2*b*(1+a)/(1+b))
+        Es0 = fac*hbar*self.gamma_analytical/self.mu23
+        Es1 = fac*hbar*self.gamma_analytical/self.mu13
+        Is0 = 0.5*epsilon_0*c*Es0**2
+        Is01 = 0.5*epsilon_0*c*Es1**2
+        Delta = self.detun + self.k*v
+        Is = Is0*(1 + (Delta/self.gamma_analytical)**2)
+        Is1 = Is01*(1 + (Delta-self.delta0/self.gamma_analytical)**2)
+        # print(f"{Is=}")
+        Es = np.sqrt(2*Is/(epsilon_0*c))
+        pref = self.G2*N(self.T)/(epsilon_0*hbar) * \
+            abs(self.mu23)**2/self.gamma_analytical
+        pref1 = self.G1*N(self.T)/(epsilon_0*hbar) * \
+            abs(self.mu13)**2/self.gamma_analytical
+        chi = pref * (1j-Delta/self.gamma_analytical) / \
+            (1+(Delta/self.gamma_analytical)**2 + (self.E_map/Es0)**2)
+        chi += pref1 * ((1j-Delta - self.delta0)/self.gamma_analytical) / \
+            (1+((Delta-self.delta0)/self.gamma_analytical)**2 + (self.E_map/Es1)**2)
+        return chi
+
+    def do_V_span(self, v0: float, v1: float, N_v: int) -> tuple:
+        """Averages the susceptibility over N_real realizations and N_v velocity 
+        classes. Computes the suscpeptibility on both transitions 2->3 and 1->3.
+        Uses the julia 'code do_V_span.jl'.
+        Args:
+            v0 (float): Starting velocity. Should not be too low to avoid stalling the 
+            solver with very long evolution times.
+            v1 (float): End velocity
+            N_v (int): Number of velocity classes
+
+        Returns:
+            tuple(np.ndarray, np.ndarray): Averaged susceptibility map and number of counts.
+        """
+        Main.eval(f"global N_v = {N_v}")
+        Main.eval(f"global v0 = {v0}")
+        Main.eval(f"global v1 = {v1}")
+        Main.eval(f"global N_real = {self.N_real}")
+        Main.eval(f"global N_grid = {self.N_grid}")
+        Main.eval(f"global T = {self.T}")
+        Main.eval(f"global window = {self.window}")
+        Main.eval(
+            f"global Gamma = {np.real(self.Gamma)}+{np.imag(self.Gamma)}*im")
+        Main.eval(
+            f"global Omega13 = {np.real(self.Omega13)}+{np.imag(self.Omega13)}*im")
+        Main.eval(
+            f"global Omega23 = {np.real(self.Omega23)}+{np.imag(self.Omega23)}*im")
+        Main.eval(
+            f"global gamma21tilde = {np.real(self.gamma21tilde)}+{np.imag(self.gamma21tilde)}*im")
+        Main.eval(
+            f"global gamma31tilde = {np.real(self.gamma31tilde)}+{np.imag(self.gamma31tilde)}*im")
+        Main.eval(
+            f"global gamma32tilde = {np.real(self.gamma32tilde)}+{np.imag(self.gamma32tilde)}*im")
+        Main.eval(f"global waist = {self.waist} + 0*im")
+        Main.eval(f"global r0 = {self.r0} + 0*im")
+        Main.eval(
+            f"global x0 = [{self.G1} + 0*im, {self.G2} + im*0, 0.0*im, 0.0*im, 0.0*im, 0.0*im, 0.0*im, 0.0*im]")
+        Main.eval(f"global k = {self.k}")
+        with open("do_V_span.jl", mode='r') as f:
+            grid_weighted_13, grid_weighted_23, counter_grid = Main.eval(
+                f.read())
+        grid_weighted = 2*N(self.T) * (np.abs(self.mu13) * grid_weighted_13 +
+                                       np.abs(self.mu23) * grid_weighted_23) / (self.E_map * epsilon_0)
+        return grid_weighted, counter_grid
+
+    def do_V_span_pop(self, v0: float, v1: float, N_v: int) -> tuple:
+        """Averages the populations over N_real realizations and N_v velocity 
+        classes.
+        Uses the julia 'code do_V_span_pop.jl'.
+
+        Args:
+            v0 (float): Starting velocity. Should not be too low to avoid stalling the 
+            solver with very long evolution times.
+            v1 (float): End velocity
+            N_v (int): Number of velocity classes
+
+        Returns:
+            tuple(np.ndarray, np.ndarray): Averaged population map and number of counts.
+        """
+        Main.eval(f"global N_v = {N_v}")
+        Main.eval(f"global v0 = {v0}")
+        Main.eval(f"global v1 = {v1}")
+        Main.eval(f"global N_real = {self.N_real}")
+        Main.eval(f"global N_grid = {self.N_grid}")
+        Main.eval(f"global T = {self.T}")
+        Main.eval(f"global window = {self.window}")
+        Main.eval(
+            f"global Gamma = {np.real(self.Gamma)}+{np.imag(self.Gamma)}*im")
+        Main.eval(
+            f"global Omega13 = {np.real(self.Omega13)}+{np.imag(self.Omega13)}*im")
+        Main.eval(
+            f"global Omega23 = {np.real(self.Omega23)}+{np.imag(self.Omega23)}*im")
+        Main.eval(
+            f"global gamma21tilde = {np.real(self.gamma21tilde)}+{np.imag(self.gamma21tilde)}*im")
+        Main.eval(
+            f"global gamma31tilde = {np.real(self.gamma31tilde)}+{np.imag(self.gamma31tilde)}*im")
+        Main.eval(
+            f"global gamma32tilde = {np.real(self.gamma32tilde)}+{np.imag(self.gamma32tilde)}*im")
+        Main.eval(f"global waist = {self.waist} + 0*im")
+        Main.eval(f"global r0 = {self.r0} + 0*im")
+        Main.eval(
+            f"global x0 = [{self.G1} + 0*im, {self.G2} + im*0, 0.0*im, 0.0*im, 0.0*im, 0.0*im, 0.0*im, 0.0*im]")
+        Main.eval(f"global k = {self.k}")
+        with open("do_V_span_pop.jl") as f:
+            grid_pop_weighted, grid_coh_weighted, counter_grid = Main.eval(
+                f.read())
+        return grid_pop_weighted, grid_coh_weighted, counter_grid
