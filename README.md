@@ -2,7 +2,11 @@
 Intro 
 Code supporting XXX (address of paper)
 
-## Depedencies
+## Dependencies
+
+-PyJulia
+-Numpy
+-scikit-image
 
 ## Usage
 
