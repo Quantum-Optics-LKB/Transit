@@ -76,7 +76,6 @@ def im_osc(im: np.ndarray,  cont: bool = True, plot: bool = False) -> tuple:
 
     """
 
-    nb_pix = len(im[0, :])
     im_fft = np.fft.fftshift(np.fft.fft2(im))
     im_fft_fringe = im_fft.copy()
     im_fft_cont = im_fft.copy()
@@ -102,11 +101,9 @@ def im_osc(im: np.ndarray,  cont: bool = True, plot: bool = False) -> tuple:
     areas = [prop.area for prop in props]
     maxi_area = np.where(areas == max(areas))[0][0]
     label_osc = props[maxi_area].label
-    # labels_cont = props[1].label
+    center_osc = np.round(props[maxi_area].centroid_weighted).astype(int)
     contour_osc = measure.find_contours(labels == label_osc, 0.5)[0]
-    # contour_cont = measure.find_contours(labels == labels_cont, 0.5)[0]
     y, x = contour_osc.T
-    # y1, x1 = contour_cont.T
     y = y.astype(int)
     x = x.astype(int)
     mask_osc = np.zeros(im_fft.shape)
@@ -114,18 +111,20 @@ def im_osc(im: np.ndarray,  cont: bool = True, plot: bool = False) -> tuple:
     mask_osc_flood = flood(mask_osc, (y[0]+1, x[0]+1), connectivity=1)
     im_fft_fringe[mask_osc_flood] = 0
     im_fft_cont[mask_cont_flood] = 0
+    # bring osc part to center to remove tilt
+    im_fft_fringe = np.roll(im_fft_fringe,
+                            (im_fft_fringe.shape[0]//2-center_osc[0],
+                             im_fft_fringe.shape[1]//2-center_osc[1]),
+                            axis=(-2, -1))
     im_fringe = np.fft.ifft2(np.fft.fftshift(im_fft_fringe))
     im_cont = np.fft.ifft2(np.fft.fftshift(im_fft_cont))
     if plot:
-        circle = plt.Circle((nb_pix//2, nb_pix//2), cont_size//2, color='b',
+        circle = plt.Circle((im.shape[1]//2, im.shape[0]//2), cont_size//2, color='b',
                             fill=False)
         fig, ax = plt.subplots(1, 4)
         im0 = ax[0].imshow(im, cmap='gray')
-        ax[0].set_xlim((712, 1336))
-        ax[0].set_ylim((712, 1336))
         ax[0].set_title("Real space")
         fig.colorbar(im0, ax=ax[0])
-        # im = ax[1].imshow(np.log(np.abs(im_fft)))
         im = ax[1].imshow(np.abs(im_fft),
                           norm=colors.SymLogNorm(linthresh=0.03, linscale=0.03,
                                                  vmin=np.min(np.abs(im_fft)),
@@ -134,8 +133,6 @@ def im_osc(im: np.ndarray,  cont: bool = True, plot: bool = False) -> tuple:
         fig.colorbar(im, ax=ax[1])
         ax[1].plot(x, y, color='r', ls='--')
         ax[1].add_patch(circle)
-        ax[1].set_xlim((912, 1136))
-        ax[1].set_ylim((912, 1136))
         ax[1].set_title("Fourier space")
         ax[1].legend(["Oscillating", "Continuous"])
         im = ax[2].imshow(np.abs(im_fft_fringe),
@@ -144,13 +141,9 @@ def im_osc(im: np.ndarray,  cont: bool = True, plot: bool = False) -> tuple:
                                                  vmax=np.max(np.abs(im_fft)),
                                                  base=10))
         fig.colorbar(im, ax=ax[2])
-        ax[2].set_xlim((912, 1136))
-        ax[2].set_ylim((912, 1136))
         ax[2].set_title("Filtered Fourier signal")
         im = ax[3].imshow(np.angle(im_fringe), cmap="twilight")
         fig.colorbar(im, ax=ax[3])
-        ax[3].set_xlim((712, 1336))
-        ax[3].set_ylim((712, 1336))
         ax[3].set_title("Phase of filtered signal")
         plt.show()
     if cont:
@@ -177,83 +170,10 @@ def delta_n(im0: np.ndarray,  cont: bool = False, plot: bool = False, err: bool 
     im = np.copy(im0)
     im = im - np.mean(im[0:100, 0:100])
     im = im/np.max(im)
-    Y, X = np.indices(im.shape)
     centre_x, centre_y = centre(im)
-    im_avg = az_avg(im, center=[centre_x, centre_y])
-    rad_max = np.argmin(np.where(im_avg < 0.07, -1, 0))
-    im_fft = np.fft.fftshift(np.fft.fft2(im))
-    im_fft_fringe = im_fft.copy()
-    im_fft_cont = im_fft.copy()
-    fft_filt = gaussian_filter(np.abs(im_fft), 1e-3*im_fft.shape[0])
-    cont_size = 20
-    mask_cont_flood = cache(cont_size, out=False, center=(im.shape[0]//2, im.shape[1]//2),
-                            nb_pix=im.shape)
-    dbl_gradient = np.log(np.abs(np.gradient(fft_filt, axis=0)) +
-                          np.abs(np.gradient(fft_filt, axis=1)))
-    m_value = np.nanmean(dbl_gradient[dbl_gradient != -np.infty])
-    dbl_gradient[np.bitwise_not(mask_cont_flood)] = m_value
-    dbl_gradient_int = (dbl_gradient*(dbl_gradient > 0.7 *
-                                      np.nanmax(dbl_gradient))).astype(np.uint8)
-    # convert to binary using appropriate threshold
-    threshold = filters.threshold_otsu(dbl_gradient_int)
-    mask = dbl_gradient_int > threshold
-    mask = morphology.remove_small_objects(mask, 1)
-    mask = morphology.remove_small_holes(mask, 1)
-    mask = clear_border(mask)
-    mask = morphology.remove_small_holes(mask, 1, connectivity=2)
-    labels = measure.label(mask)
-    props = measure.regionprops(labels, dbl_gradient_int)
-    # takes the spot with the maximum area
-    areas = [prop.area for prop in props]
-    maxi_area = np.where(areas == max(areas))[0][0]
-    label_osc = props[maxi_area].label
-    center_osc = np.round(props[maxi_area].centroid_weighted).astype(int)
-    contour_osc = measure.find_contours(labels == label_osc, 0.5)[0]
-    y, x = contour_osc.T
-    y = y.astype(int)
-    x = x.astype(int)
-    mask_osc_flood = np.zeros(im_fft.shape)
-    mask_osc_flood[y, x] = 1
-    mask_osc_flood = flood(mask_osc_flood, (y[0]+1, x[0]+1), connectivity=1)
-    im_fft_fringe[mask_osc_flood] = 0
-    im_fft_cont[mask_cont_flood] = 0
-    # bring osc part to center to remove tilt
-    im_fft_fringe = np.roll(im_fft_fringe,
-                            (im_fft_fringe.shape[0]//2-center_osc[0],
-                             im_fft_fringe.shape[1]//2-center_osc[1]),
-                            axis=(-2, -1))
-    im_fringe = np.fft.ifft2(np.fft.fftshift(im_fft_fringe))
-    im_cont = np.fft.ifft2(np.fft.fftshift(im_fft_cont))
+    im_cont, im_fringe = im_osc(im, cont=True, plot=plot)
     centre_x, centre_y = centre(im_cont)
     cont_avg = az_avg(np.abs(im_cont), center=[centre_x, centre_y])
-    if plot:
-        circle = plt.Circle((im.shape[1]//2, im.shape[0]//2), cont_size//2, color='b',
-                            fill=False)
-        fig, ax = plt.subplots(1, 4)
-        i0 = ax[0].imshow(im, cmap='gray')
-        ax[0].set_title("Real space")
-        fig.colorbar(i0, ax=ax[0])
-        i = ax[1].imshow(np.abs(im_fft),
-                         norm=colors.SymLogNorm(linthresh=0.03, linscale=0.03,
-                                                vmin=np.min(np.abs(im_fft)),
-                                                vmax=np.max(np.abs(im_fft)),
-                                                base=10))
-        fig.colorbar(i, ax=ax[1])
-        ax[1].plot(x, y, color='r', ls='--')
-        ax[1].add_patch(circle)
-        ax[1].set_title("Fourier space")
-        ax[1].legend(["Oscillating", "Continuous"])
-        i = ax[2].imshow(np.abs(im_fft_fringe),
-                         norm=colors.SymLogNorm(linthresh=0.03, linscale=0.03,
-                                                vmin=np.min(np.abs(im_fft)),
-                                                vmax=np.max(np.abs(im_fft)),
-                                                base=10))
-        fig.colorbar(i, ax=ax[2])
-        ax[2].set_title("Filtered Fourier signal")
-        i = ax[3].imshow(np.angle(im_fringe), cmap="twilight")
-        fig.colorbar(i, ax=ax[3])
-        ax[3].set_title("Phase of filtered signal")
-        plt.show()
     phase = np.angle(im_fringe)
     analytic = np.abs(im_fringe)
     contr = 2*analytic/im_cont
@@ -354,8 +274,8 @@ def contr(im: np.ndarray) -> np.ndarray:
     """
     im_cont, im_fringe = im_osc(im, cont=True)
     analytic = np.abs(im_fringe)
-
-    return 2*analytic/im_cont
+    cont = np.abs(im_cont)
+    return 2*analytic/cont
 
 
 def phase(im: np.ndarray) -> np.ndarray:
