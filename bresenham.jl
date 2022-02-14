@@ -1,19 +1,17 @@
 
-# function for line generation
-"""
-Bresenham's Line Algorithm
-Produces a list of tuples from start and end
-
->>> points1 = get_line((0, 0), (3, 4))
->>> points2 = get_line((3, 4), (0, 0))
->>> assert(set(points1) == set(points2))
->>> print points1
-[(0, 0), (1, 1), (1, 2), (2, 3), (3, 4)]
->>> print points2
-[(3, 4), (2, 3), (1, 2), (1, 1), (0, 0)]
-"""
 function bresenham(x1::Int32, y1::Int32, x2::Int32, y2::Int32)
+    """
+    Bresenham's Line Algorithm
+    Produces a list of tuples from start and end
 
+    >>> points1 = get_line((0, 0), (3, 4))
+    >>> points2 = get_line((3, 4), (0, 0))
+    >>> assert(set(points1) == set(points2))
+    >>> print points1
+    [(0, 0), (1, 1), (1, 2), (2, 3), (3, 4)]
+    >>> print points2
+    [(3, 4), (2, 3), (1, 2), (1, 1), (0, 0)]
+    """
     dx = x2 - x1
     dy = y2 - y1
 

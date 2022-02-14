@@ -2,16 +2,22 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-def azimuthalAverage(image, center=None, r=None, all_pt=False):
-    """
-    Calculate the azimuthally averaged radial profile.
-    image - The 2D image
-    center - The [x,y] pixel coordinates used as the center. The default is None, which then uses the center of the image (including     fractional pixels).
+def az_avg(image: np.ndarray, center: tuple = None, r=None, all_pt=False) -> np.ndarray:
+    """Calculates the azimuthally averaged radial profile.
 
+    Args:
+        image (np.ndarray): The 2D image
+        center (tuple, optional): The [x,y] pixel coordinates used as the center. Defaults to None, 
+        which then uses the center of the image (including fractional pixels). 
+        r (np.ndarray, optional): Array of radii. Defaults to None.
+        all_pt (bool, optional): Includes all pixels. Defaults to False.
+
+    Returns:
+        np.ndarray: [description]
     """
     # Calculate the indices from the image
 
-    if not center:
+    if center is not None:
         y, x = np.indices(image.shape)
         center = np.array([(x.max()-x.min())/2.0, (y.max()-y.min())/2.0])
 

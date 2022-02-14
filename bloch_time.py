@@ -1,16 +1,16 @@
 # -*-coding:utf-8 -*
 
+import numpy as np
+import matplotlib.pyplot as plt
+import sys
+from julia import Main
 from odeintw import odeintw
 from scipy.integrate import solve_ivp
 from scipy.constants import (Boltzmann, c, e, elementary_charge, epsilon_0,
                              hbar, m_n, mu_0)
 from numba import cfunc, complex128, float64, jit, types, void
-from julia import Main
-import sys
-
-import matplotlib.pyplot as plt
-import numpy as np
 from julia import Julia
+# Compiler flags and options
 jl = Julia(["--optimize=3", "--compile=all"])
 
 

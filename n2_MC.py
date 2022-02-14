@@ -321,7 +321,7 @@ def main():
     # ax1b.legend(loc="upper right")
     # plt.show()
     # Waist run with propagation
-    indices = range(10)
+    indices = range(9, 10)
     Dn_w_murad = np.zeros(
         (len(waists_murad[indices]), N_grid, N_grid), dtype=np.float64)
     Dn_center = np.zeros(len(waists_murad[indices]), dtype=np.float64)

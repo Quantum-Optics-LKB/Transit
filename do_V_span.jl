@@ -8,7 +8,18 @@ const u = sqrt(2 * k_B * T / m87)
 const l = u * (1 / abs(Gamma))
 
 function bresenham(x1::Int32, y1::Int32, x2::Int32, y2::Int32)::Array{Array{Int32,1},1}
+    """
+    Bresenham's Line Algorithm
+    Produces a list of tuples from start and end
 
+    >>> points1 = get_line((0, 0), (3, 4))
+    >>> points2 = get_line((3, 4), (0, 0))
+    >>> assert(set(points1) == set(points2))
+    >>> print points1
+    [(0, 0), (1, 1), (1, 2), (2, 3), (3, 4)]
+    >>> print points2
+    [(3, 4), (2, 3), (1, 2), (1, 1), (0, 0)]
+    """
     dx = x2 - x1
     dy = y2 - y1
 
@@ -63,6 +74,9 @@ function bresenham(x1::Int32, y1::Int32, x2::Int32, y2::Int32)::Array{Array{Int3
 end
 
 function choose_points()
+    """
+    Randomly chooses 2 points at the boundary of the grid.
+    """
     edges = Array{Tuple{Int32,Int32},1}(undef, 4 * N_grid)
     for i in 1:N_grid
         edges[i] = (1, i)
@@ -81,6 +95,10 @@ function choose_points()
 end
 
 function draw_vz(v::Float64)::Float64
+    """
+    Draws a random longitudinal velocity given a total velocity v.
+    Uses Maxwell-Blotzmann distribution.
+    """
     vz = abs(2 * v)
     while abs(vz) > abs(v)
         vz = randn() * sqrt(k_B * T / m87)
@@ -92,6 +110,11 @@ end
     @fastmath begin
         function f!(dy::Array{ComplexF64,1}, x::Array{ComplexF64,1},
             p::Array{ComplexF64,1}, t::Float64)
+            """
+            RHS of the Maxwell-Bloch equations. This needs to be *fast*.
+            Calculation of the RHS is done in place. The calculation is carried out in an unrolled 
+            manner to avoid allocating a 8x8 array each call (unefficient for such a small system).
+            """
             r_sq = (p[4] + p[2] * p[1] * t - p[13])^2 + (p[5] + p[3] * p[1] * t - p[13])^2
             Om23 = p[8] * exp(-r_sq / (2.0 * p[12] * p[12]))
             Om13 = p[7] * exp(-r_sq / (2.0 * p[12] * p[12]))
@@ -100,9 +123,9 @@ end
                 dy[2] = x[1]
                 dy[3] = x[4]
                 dy[4] = x[3]
-                dy[5] = im * Om13 * x[1] + (im * Om13 / 2.0) * x[2] + (im * Om23 / 2.0) * x[3] - p[10] * x[5] - im * Om13 / 2.0
+                dy[5] = (im * Om23 / 2.0) * x[1] + im * Om23 * x[2] + (im * Om13 / 2.0) * x[4] - p[11] * x[7] - im * Om23 / 2.0
                 dy[6] = -im * conj(Om13) * x[1] - im * (conj(Om13) / 2.0) * x[2] - (im * conj(Om23) / 2.0) * x[4] - conj(p[10]) * x[6] + im * conj(Om13) / 2.0
-                dy[7] = (im * Om23 / 2.0) * x[1] + im * Om23 * x[2] + (im * Om13 / 2.0) * x[4] - p[11] * x[7] - im * Om23 / 2.0
+                dy[7] = im * Om13 * x[1] + (im * Om13 / 2.0) * x[2] + (im * Om23 / 2.0) * x[3] - p[10] * x[5] - im * Om13 / 2.0
                 dy[8] = (-im * conj(Om23) / 2.0) * x[1] - im * conj(Om23) * x[2] - (im * conj(Om13) / 2.0) * x[3] - conj(p[11]) * x[8] + im * conj(Om23) / 2.0
                 p[15] += 1
             else
@@ -124,6 +147,9 @@ end
     @fastmath begin
         function f_jac!(J::Array{ComplexF64,2}, x::Array{ComplexF64,1},
             p::Array{ComplexF64,1}, t::Float64)
+            """
+            Jacobian of the Maxwell-Bloch system
+            """
             r_sq = (p[4] + p[2] * p[1] * t - p[13])^2 + (p[5] + p[3] * p[1] * t - p[13])^2
             Om23 = p[8] * exp(-r_sq / (2 * p[12] * p[12]))
             Om13 = p[7] * exp(-r_sq / (2 * p[12] * p[12]))
@@ -196,23 +222,25 @@ end
 end
 
 
-
+# Instantiates the various accumulator grids : note that everything should be preallocated
+# with *fixed* size, immutable arrays for speed. 
 grid_13 = zeros(ComplexF64, (N_grid, N_grid))
 grid_23 = zeros(ComplexF64, (N_grid, N_grid))
 counter_grid = zeros(Int32, (N_grid, N_grid))
 counter_grid_total = zeros(Int32, (N_grid, N_grid))
 grid_weighted_13 = zeros(ComplexF64, (N_grid, N_grid))
 grid_weighted_23 = zeros(ComplexF64, (N_grid, N_grid))
-normalized = zeros(Float64, (N_grid, N_grid))
 Vs = collect(LinRange{Float64}(v0, v1, N_v))
 pv = sqrt(2.0 / pi) * ((m87 / (k_B * T))^(3.0 / 2.0)) .* Vs .^ 2.0 .* exp.(-m87 * Vs .^ 2.0 / (2.0 * k_B * T))
 v_perps = zeros(Float64, N_real)
 global coords = Array{Tuple{Int32,Int32,Int32,Int32}}(undef, N_real)
+# Loop over velocity classes
 for (index_v, v) in ProgressBar(enumerate(Vs))
     global paths = [[] for i = 1:N_real]
     global tpaths = [[] for i = 1:N_real]
-    global t_colls = rand(Exponential(l / v), N_real)
-    # global t_colls = -1.0 * ones(Float64, N_real)
+    # Uncomment to experiment with collisions
+    # global t_colls = rand(Exponential(l / v), N_real)
+    global t_colls = -1.0 * ones(Float64, N_real)
     # Choose points in advance to save only the relevant points during solving
     Threads.@threads for i = 1:N_real
         iinit, jinit, ifinal, jfinal = choose_points()
@@ -221,6 +249,7 @@ for (index_v, v) in ProgressBar(enumerate(Vs))
         v_perps[i] = sqrt(v^2.0 - draw_vz(v)^2.0)
         tpaths[i] = sort(Float64[hypot(coord[2] - iinit, coord[1] - jinit) * abs(window) / (v_perps[i] * N_grid) for coord in paths[i]])
     end
+    # Instantiates a new problem
     function prob_func(prob, i, repeat)
         iinit, jinit, ifinal, jfinal = coords[i]
         v_perp = v_perps[i]
@@ -229,7 +258,6 @@ for (index_v, v) in ProgressBar(enumerate(Vs))
         yinit = iinit * window / N_grid
         xfinal = jfinal * window / N_grid
         yfinal = ifinal * window / N_grid
-        # velocity unit vector
         if v_perp != 0
             u0 = xfinal - xinit
             u1 = yfinal - yinit
@@ -242,12 +270,16 @@ for (index_v, v) in ProgressBar(enumerate(Vs))
         new_p = ComplexF64[v_perp+0.0*im, u0+0.0*im, u1+0.0*im,
             xinit+0.0*im, yinit+0.0*im,
             Gamma, Omega13, Omega23, gamma21tilde, gamma31tilde-im*k*vz,
-            gamma32tilde-im*k*vz, waist, r0, t_colls[i], 0.0*im]
+            gamma32tilde-im*k*vz, waist, r0, t_colls[i], 1.0*im]
+        # Uncomment to experiment with collisions
+        # new_p = ComplexF64[v_perp+0.0*im, u0+0.0*im, u1+0.0*im,
+        #     xinit+0.0*im, yinit+0.0*im,
+        #     Gamma, Omega13, Omega23, gamma21tilde, gamma31tilde-im*k*vz,
+        #     gamma32tilde-im*k*vz, waist, r0, t_colls[i], 0.0*im]
         remake(prob, p = new_p, tspan = (0.0, maximum(tpaths[i])), saveat = tpaths[i])
 
     end
 
-    # instantiate a problem
     p = ComplexF64[1.0+0.0*im, 1.0+0.0*im, 1.0+0.0*im, 1.0+0.0*im, 1.0+0.0*im,
         Gamma, Omega13,
         Omega23, gamma21tilde,
@@ -257,6 +289,8 @@ for (index_v, v) in ProgressBar(enumerate(Vs))
     tsave = collect(LinRange{Float64}(tspan[1], tspan[2], 2))
     prob = ODEProblem{true}(f!, x0, tspan, p, jac = f_jac!, saveat = tsave)
     ensembleprob = EnsembleProblem(prob, prob_func = prob_func)
+    # for best precision
+    # alg = KenCarp58(autodiff=false)
     alg = TRBDF2(autodiff = false)
     atol = 1e-10
     rtol = 1e-8
@@ -266,6 +300,7 @@ for (index_v, v) in ProgressBar(enumerate(Vs))
             trajectories = 2, save_idxs = [5, 7], abstol = atol, reltol = rtol,
             maxiters = Int(1e8), dt = 1e-14, dtmin = 1e-14, dtmax = 1e-5)
     end
+    # Solve main problem in parallel over threads. 
     sol = solve(ensembleprob, alg, EnsembleThreads(),
         trajectories = N_real, save_idxs = [5, 7], abstol = atol, reltol = rtol,
         maxiters = Int(1e8), dt = 1e-14, dtmin = 1e-16, dtmax = 1e-7)
@@ -281,6 +316,7 @@ for (index_v, v) in ProgressBar(enumerate(Vs))
             end
         end
     end
+    # Averaging over realizations and velocity probability
     grid_weighted_13 .+= (grid_13 ./ counter_grid) * pv[index_v] * abs(Vs[2] - Vs[1])
     grid_weighted_23 .+= (grid_23 ./ counter_grid) * pv[index_v] * abs(Vs[2] - Vs[1])
     counter_grid_total .+= counter_grid
