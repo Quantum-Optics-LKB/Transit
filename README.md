@@ -32,7 +32,8 @@ Its workflow is represented in the following ![image](docs/fig_intro.png).
 
 ## Atomic Monte-Carlo simulations
 
-The aomic simulations are written mainly in Julia and wrapped to a convenient Python class in [`bloch_time.py`](./bloch_time.py).
+The aomic simulations are written mainly in Julia and wrapped to a convenient Python class in [`bloch_time.py`](./bloch_time.py).\
+The physical setup is described at length in the [paper](docs/2202.05764.pdf), but it can be easily summarized in the following ![figure](docs/fig-waist.png) 
 
 # Dependencies
 These are the main depedencies of the codebase.\
