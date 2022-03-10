@@ -4,7 +4,7 @@ This code aims at giving the tools for both measurement and numerical estimation
 It aims at providing an easily reusable codebase in modern langages (Python) while benefiting from the performance of a compiled langage (Julia).\
 **Please note : This code base is provided without any guarantee nor reliable support. However feel free to raise an issue if you want to reuse the code and need some help.**\
 Please do cite us !
-```
+```latex
 @misc{aladjidi2022transit,
       title={Transit effects for non-linear index measurement in hot atomic vapors}, 
       author={Tangui Aladjidi and Murad Abuzarli and Guillaume Brochier and Tom Bienaimé and Thomas Picot and Alberto Bramati and Quentin Glorieux},
