@@ -22,7 +22,7 @@ T = 150+273  # cell temp
 puiss = 560e-3  # power in W
 waist = 1.85e-3  # beam waist
 I = puiss/(np.pi*waist**2)
-detun = -4e9  # detuning
+detun = -2.2e9  # detuning
 L = 10e-3  # cell length
 N_grid = 128
 N_v = 20
@@ -216,6 +216,12 @@ def main():
     # np.save(
     #     f"results/Dn_center_w_P_{start_time}_analytical.npy", Dn_analytical)
     # print(f"Time spent to loop powers : {time.time()-t0} s")
+    # # Dn_center = np.load("results/Dn_center_w_P_Wed Apr 27 15:38:43 2022.npy")
+    # # Dn_analytical = np.load(
+    # #     "results/Dn_center_w_P_Wed Apr 27 15:38:43 2022_analytical.npy")
+    # # for counter_p, power in enumerate(powers):
+    # #     Dn_P_murad[counter_p, :, :] = np.load(
+    # #         f'results/Dn_w{counter_p}_murad_Wed Apr 27 15:38:43 2022.npy')
     # for counter_p, power in enumerate(powers):
     #     im = ax[counter_p//5, counter_p % 5].imshow(np.abs(Dn_P_murad[counter_p, :, :]),
     #                                                 vmin=np.nanmin(
@@ -227,16 +233,20 @@ def main():
 
     # def fit_Isat(P, n2_0, Isat):
     #     I = P/waists_murad[idx]
-    #     return n2_0*I/(1+I/Isat)
+    #     alpha = -np.log(0.6)/L
+    #     Itilde = I*(1-np.exp(-alpha*L))/(alpha*L)
+    #     Itilde *= 1/(1+Itilde/I_sat_murad[idx])
+    #     return n2_0*Itilde/(1+Itilde/Isat)
     # popt, pcov = curve_fit(fit_Isat, powers, Dn_center,
-    #                        p0=[Dn_center[0]/solver.I, 1.0], maxfev=16000)
+    #                        p0=[Dn_center[0]/I, 1.0], maxfev=16000)
     # popt1, pcov1 = curve_fit(fit_Isat, powers, Dn_analytical,
-    #                          p0=[Dn_center[0]/solver.I, 1.0], maxfev=16000)
+    #                          p0=[Dn_center[0]/I, 1.0], maxfev=16000)
     # print(popt)
-    # ax1.plot(powers*1e3, Dn_center)
-    # ax1.plot(powers*1e3, fit_Isat(powers, popt[0], popt[1]))
-    # ax1.plot(powers*1e3, fit_Isat(powers, -n2_murad[idx], I_sat_murad[idx]))
-    # ax1.plot(powers*1e3, Dn_analytical)
+    # ax1.plot(powers*1e3, np.abs(Dn_center))
+    # ax1.plot(powers*1e3, np.abs(fit_Isat(powers, popt[0], popt[1])))
+    # ax1.plot(powers*1e3, np.abs(fit_Isat(powers,
+    #                                      n2_murad[idx], I_sat_murad[idx])))
+    # ax1.plot(powers*1e3, np.abs(Dn_analytical))
     # leg1 = "Fit : $n_{2}$ = "+"{:.2e}".format(popt[0])+" $m^{2}/W$, " +\
     #     "$I_{sat}$ = "+f"{np.round(popt[1], decimals=2)} "+"$W/m^{2}$"
     # leg2 = "Data : $n_{2}$ = "+"{:.2e}".format(-n2_murad[idx])+" $m^{2}/W$, " +\
@@ -250,7 +260,7 @@ def main():
     #              f"{np.round(waists_murad[idx]*1e3, decimals=2)} mm")
     # ax1.set_xlabel("Power in mW")
     # ax1.set_ylabel("$\Delta n$")
-    # # ax1.set_yscale('log')
+    # ax1.set_yscale('log')
     # plt.show()
     # realizations run
     # reals = [1000, 2000, 5000, 10000, 50000, 100000]
@@ -321,7 +331,7 @@ def main():
     # ax1b.legend(loc="upper right")
     # plt.show()
     # Waist run with propagation
-    indices = range(9, 10)
+    indices = range(10)
     Dn_w_murad = np.zeros(
         (len(waists_murad[indices]), N_grid, N_grid), dtype=np.float64)
     Dn_center = np.zeros(len(waists_murad[indices]), dtype=np.float64)
@@ -365,7 +375,7 @@ def main():
     for counter_w, waist in enumerate(waists_murad[indices]):
         im = ax[counter_w//5, counter_w % 5].imshow(np.abs(Dn_w_murad[counter_w, :, :]),
                                                     norm=colors.LogNorm(vmin=np.nanmin(np.abs(Dn_w_murad)),
-                                                    vmax=np.nanmax(np.abs(Dn_w_murad))))
+                                                                        vmax=np.nanmax(np.abs(Dn_w_murad))))
         ax[counter_w//5, counter_w % 5].set_title("$w_{0}$ = " +
                                                   f"{np.round(waist*1e3, decimals=2)} mm")
         fig.colorbar(im, ax=ax[counter_w//5, counter_w % 5])

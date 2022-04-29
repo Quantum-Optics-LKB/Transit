@@ -509,11 +509,11 @@ class temporal_bloch:
             u0 /= norm
             u1 /= norm
             t_path = np.array([np.hypot(_[1]-iinit, _[0]-jinit)
-                              * self.window/(self.N_grid*v_perp) for _ in path])
+                               * self.window/(self.N_grid*v_perp) for _ in path])
         else:
             u0 = u1 = 0
             t_path = np.array([np.hypot(_[1]-iinit, _[0]-jinit)
-                              * self.window/(self.N_grid*np.abs(vz)) for _ in path])
+                               * self.window/(self.N_grid*np.abs(vz)) for _ in path])
         tfinal = t_path[-1]
         # print(f'tfinal = {tfinal*1e6} us')
         # ts = np.arange(0, tfinal, 1e-10, dtype=np.float64)

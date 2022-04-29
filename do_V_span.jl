@@ -276,7 +276,7 @@ for (index_v, v) in ProgressBar(enumerate(Vs))
         #     xinit+0.0*im, yinit+0.0*im,
         #     Gamma, Omega13, Omega23, gamma21tilde, gamma31tilde-im*k*vz,
         #     gamma32tilde-im*k*vz, waist, r0, t_colls[i], 0.0*im]
-        remake(prob, p = new_p, tspan = (0.0, maximum(tpaths[i])), saveat = tpaths[i])
+        remake(prob, p=new_p, tspan=(0.0, maximum(tpaths[i])), saveat=tpaths[i])
 
     end
 
@@ -287,23 +287,23 @@ for (index_v, v) in ProgressBar(enumerate(Vs))
         gamma32tilde-im*k*0.0, waist, r0, 1.0, 0]
     tspan = (0.0, 1.0)
     tsave = collect(LinRange{Float64}(tspan[1], tspan[2], 2))
-    prob = ODEProblem{true}(f!, x0, tspan, p, jac = f_jac!, saveat = tsave)
-    ensembleprob = EnsembleProblem(prob, prob_func = prob_func)
+    prob = ODEProblem{true}(f!, x0, tspan, p, jac=f_jac!, saveat=tsave)
+    ensembleprob = EnsembleProblem(prob, prob_func=prob_func)
     # for best precision
-    # alg = KenCarp58(autodiff=false)
-    alg = TRBDF2(autodiff = false)
+    alg = KenCarp58(autodiff=false)
+    # alg = TRBDF2(autodiff = false)
     atol = 1e-10
     rtol = 1e-8
     # run once on small system to try and speed up compile time
     if index_v == 1
         sol = solve(ensembleprob, alg, EnsembleThreads(),
-            trajectories = 2, save_idxs = [5, 7], abstol = atol, reltol = rtol,
-            maxiters = Int(1e8), dt = 1e-14, dtmin = 1e-14, dtmax = 1e-5)
+            trajectories=2, save_idxs=[5, 7], abstol=atol, reltol=rtol,
+            maxiters=Int(1e8), dt=1e-14, dtmin=1e-14, dtmax=1e-5)
     end
     # Solve main problem in parallel over threads. 
     sol = solve(ensembleprob, alg, EnsembleThreads(),
-        trajectories = N_real, save_idxs = [5, 7], abstol = atol, reltol = rtol,
-        maxiters = Int(1e8), dt = 1e-14, dtmin = 1e-16, dtmax = 1e-7)
+        trajectories=N_real, save_idxs=[5, 7], abstol=atol, reltol=rtol,
+        maxiters=Int(1e8), dt=1e-14, dtmin=1e-16, dtmax=1e-7)
     global grid_13 .= zeros(ComplexF64, (N_grid, N_grid))
     global grid_23 .= zeros(ComplexF64, (N_grid, N_grid))
     global counter_grid .= zeros(Int32, (N_grid, N_grid))
