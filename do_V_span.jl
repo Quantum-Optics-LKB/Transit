@@ -290,8 +290,8 @@ for (index_v, v) in ProgressBar(enumerate(Vs))
     prob = ODEProblem{true}(f!, x0, tspan, p, jac=f_jac!, saveat=tsave)
     ensembleprob = EnsembleProblem(prob, prob_func=prob_func)
     # for best precision
-    alg = KenCarp58(autodiff=false)
-    # alg = TRBDF2(autodiff = false)
+    # alg = KenCarp58(autodiff=false)
+    alg = TRBDF2(autodiff=false)
     atol = 1e-10
     rtol = 1e-8
     # run once on small system to try and speed up compile time
@@ -303,7 +303,7 @@ for (index_v, v) in ProgressBar(enumerate(Vs))
     # Solve main problem in parallel over threads. 
     sol = solve(ensembleprob, alg, EnsembleThreads(),
         trajectories=N_real, save_idxs=[5, 7], abstol=atol, reltol=rtol,
-        maxiters=Int(1e8), dt=1e-14, dtmin=1e-16, dtmax=1e-7)
+        maxiters=Int(1e8), dt=1e-14, dtmin=1e-16, dtmax=1e-6)
     global grid_13 .= zeros(ComplexF64, (N_grid, N_grid))
     global grid_23 .= zeros(ComplexF64, (N_grid, N_grid))
     global counter_grid .= zeros(Int32, (N_grid, N_grid))

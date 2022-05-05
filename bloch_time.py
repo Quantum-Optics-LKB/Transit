@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 import sys
 from julia import Main
 from odeintw import odeintw
-from scipy.integrate import solve_ivp
 from scipy.constants import (Boltzmann, c, e, elementary_charge, epsilon_0,
                              hbar, m_n, mu_0)
 from numba import cfunc, complex128, float64, jit, types, void
