@@ -100,7 +100,7 @@ def main():
     # n2_w_T = np.empty((len(waists), N_grid, N_grid), dtype=np.float64)
     # n2_center = np.empty((len(waists), len(powers)), dtype=np.float64)
     # np.save(f'results/Ts_{time.ctime()}.npy', Ts)
-    start_time = time.ctime()
+    # start_time = time.ctime()
     # np.save(f'results/waists_{start_time}.npy', waists)
     # fig, ax = plt.subplots(2, 5)
     # fig1, ax1 = plt.subplots()
@@ -187,103 +187,106 @@ def main():
     # fig1.tight_layout()
     # plt.show()
     # Power run
-    idx = 6
-    fig, ax = plt.subplots(4, 5)
-    fig1, ax1 = plt.subplots()
-    Dn_P_murad = np.zeros((len(powers), N_grid, N_grid), dtype=np.float64)
-    Dn_center = np.zeros(len(powers), dtype=np.float64)
-    Dn_analytical = np.zeros(len(powers), dtype=np.float64)
-    solver1 = temporal_bloch(T, 1e-9, waists_murad[idx], detun, L, N_grid=N_grid,
-                             N_v=N_v, N_real=N_real, N_proc=N_proc)
-    solver1.window = 10*waists_murad[idx]
-    vs = np.linspace(-1500, 1500, 5000)
-    pvs = np.sqrt(solver1.m87/(2*np.pi*cst.Boltzmann*solver1.T)) * \
-        np.exp(-solver1.m87*vs**2/(2*cst.Boltzmann*solver1.T))
-    chi_analytical_low = solver1.chi_analytical(0)
-    t0 = time.time()
-    for counter_p, power in enumerate(powers):
-        solver = temporal_bloch(T, power, waists_murad[idx], detun, L, N_grid=N_grid,
-                                N_v=N_v, N_real=N_real, N_proc=N_proc)
-        N_steps_z = 10
-        dz = solver.L/N_steps_z
-        Dn_c = 0
-        alpha = - \
-            np.log(0.6)/solver.L
-        renorm1, counter_1 = solver1.do_V_span(v0, v1, N_v)
-        chi_analytical_low = np.sum(
-            solver1.chi_analytical(vs)*pvs*np.abs(vs[1]-vs[0]))
-        nlow = np.sqrt(1 + renorm1)
-        nlow_a = np.sqrt(1 + chi_analytical_low)
-        solver.window = solver1.window
-        for k in range(N_steps_z):
-            print(
-                f"Power {counter_p+1}/{len(powers)} ---- z {k+1}/{N_steps_z}")
-            renorm, counter = solver.do_V_span(v0, v1, N_v)
-            chi_analytical_high = np.sum(
-                solver.chi_analytical(vs)*pvs*np.abs(vs[1]-vs[0]))
-            nhigh_a = np.sqrt(1 + chi_analytical_high)
-            nhigh = np.sqrt(1 + renorm)
-            Dn_a = np.real(nhigh_a - nlow_a)
-            Dn = np.real(nhigh-nlow)
-            # print(f"{n2_a=}")
-            avg_zone = 5
-            Dn_c = np.mean(Dn[N_grid//2-avg_zone:N_grid//2+avg_zone,
-                              N_grid//2-avg_zone:N_grid//2+avg_zone])
-            Dn_P_murad[counter_p, :, :] += Dn/N_steps_z
-            Dn_center[counter_p] += Dn_c/N_steps_z
-            Dn_analytical[counter_p] += Dn_a/N_steps_z
-            solver.puiss *= np.exp(-alpha*dz)
-        np.save(f'results/Dn_w{counter_p}_murad_{start_time}.npy', Dn)
-    np.save(f"results/Dn_center_w_P_{start_time}.npy", Dn_center)
-    np.save(
-        f"results/Dn_center_w_P_{start_time}_analytical.npy", Dn_analytical)
-    print(f"Time spent to loop powers : {time.time()-t0} s")
-    # Dn_center = np.load("results/Dn_center_w_P_Wed May  4 14:00:37 2022.npy")
-    # Dn_analytical = np.load(
-    #     "results/Dn_center_w_P_Wed May  4 14:00:37 2022_analytical.npy")
-    # for counter_p, power in enumerate(powers):
-    #     Dn_P_murad[counter_p, :, :] = np.load(
-    #         f'results/Dn_w{counter_p}_murad_Wed May  4 14:00:37 2022.npy')
-    for counter_p, power in enumerate(powers):
-        im = ax[counter_p//5, counter_p % 5].imshow(np.abs(Dn_P_murad[counter_p, :, :]),
-                                                    vmin=np.nanmin(
-            np.abs(Dn_P_murad)),
-            vmax=np.nanmax(np.abs(Dn_P_murad)))
-        ax[counter_p//5, counter_p % 5].set_title("$P_{0}$ = " +
-                                                  f"{np.round(power*1e3, decimals=2)} mW")
-        fig.colorbar(im, ax=ax[counter_p//5, counter_p % 5])
+    indices = [0, 3, 4, 5, 6]
+    for idx in indices:
+        start_time = time.ctime()
+        # idx = 6
+        fig, ax = plt.subplots(4, 5)
+        fig1, ax1 = plt.subplots()
+        Dn_P_murad = np.zeros((len(powers), N_grid, N_grid), dtype=np.float64)
+        Dn_center = np.zeros(len(powers), dtype=np.float64)
+        Dn_analytical = np.zeros(len(powers), dtype=np.float64)
+        solver1 = temporal_bloch(T, 1e-9, waists_murad[idx], detun, L, N_grid=N_grid,
+                                 N_v=N_v, N_real=N_real, N_proc=N_proc)
+        solver1.window = 10*waists_murad[idx]
+        vs = np.linspace(-1500, 1500, 5000)
+        pvs = np.sqrt(solver1.m87/(2*np.pi*cst.Boltzmann*solver1.T)) * \
+            np.exp(-solver1.m87*vs**2/(2*cst.Boltzmann*solver1.T))
+        chi_analytical_low = solver1.chi_analytical(0)
+        t0 = time.time()
+        for counter_p, power in enumerate(powers):
+            solver = temporal_bloch(T, power, waists_murad[idx], detun, L, N_grid=N_grid,
+                                    N_v=N_v, N_real=N_real, N_proc=N_proc)
+            N_steps_z = 10
+            dz = solver.L/N_steps_z
+            Dn_c = 0
+            alpha = - \
+                np.log(0.6)/solver.L
+            renorm1, counter_1 = solver1.do_V_span(v0, v1, N_v)
+            chi_analytical_low = np.sum(
+                solver1.chi_analytical(vs)*pvs*np.abs(vs[1]-vs[0]))
+            nlow = np.sqrt(1 + renorm1)
+            nlow_a = np.sqrt(1 + chi_analytical_low)
+            solver.window = solver1.window
+            for k in range(N_steps_z):
+                print(
+                    f"Power {counter_p+1}/{len(powers)} ---- z {k+1}/{N_steps_z}")
+                renorm, counter = solver.do_V_span(v0, v1, N_v)
+                chi_analytical_high = np.sum(
+                    solver.chi_analytical(vs)*pvs*np.abs(vs[1]-vs[0]))
+                nhigh_a = np.sqrt(1 + chi_analytical_high)
+                nhigh = np.sqrt(1 + renorm)
+                Dn_a = np.real(nhigh_a - nlow_a)
+                Dn = np.real(nhigh-nlow)
+                # print(f"{n2_a=}")
+                avg_zone = 5
+                Dn_c = np.mean(Dn[N_grid//2-avg_zone:N_grid//2+avg_zone,
+                                  N_grid//2-avg_zone:N_grid//2+avg_zone])
+                Dn_P_murad[counter_p, :, :] += Dn/N_steps_z
+                Dn_center[counter_p] += Dn_c/N_steps_z
+                Dn_analytical[counter_p] += Dn_a/N_steps_z
+                solver.puiss *= np.exp(-alpha*dz)
+            np.save(f'results/Dn_w{counter_p}_murad_{start_time}.npy', Dn)
+        np.save(f"results/Dn_center_w_P_{start_time}.npy", Dn_center)
+        np.save(
+            f"results/Dn_center_w_P_{start_time}_analytical.npy", Dn_analytical)
+        print(f"Time spent to loop powers : {time.time()-t0} s")
+        # Dn_center = np.load("results/Dn_center_w_P_Wed May  4 14:00:37 2022.npy")
+        # Dn_analytical = np.load(
+        #     "results/Dn_center_w_P_Wed May  4 14:00:37 2022_analytical.npy")
+        # for counter_p, power in enumerate(powers):
+        #     Dn_P_murad[counter_p, :, :] = np.load(
+        #         f'results/Dn_w{counter_p}_murad_Wed May  4 14:00:37 2022.npy')
+        # for counter_p, power in enumerate(powers):
+        #     im = ax[counter_p//5, counter_p % 5].imshow(np.abs(Dn_P_murad[counter_p, :, :]),
+        #                                                 vmin=np.nanmin(
+        #         np.abs(Dn_P_murad)),
+        #         vmax=np.nanmax(np.abs(Dn_P_murad)))
+        #     ax[counter_p//5, counter_p % 5].set_title("$P_{0}$ = " +
+        #                                               f"{np.round(power*1e3, decimals=2)} mW")
+        #     fig.colorbar(im, ax=ax[counter_p//5, counter_p % 5])
 
-    def fit_Isat(P, n2_0, Isat):
-        I = P/(np.pi*waists_murad[idx]**2)
-        alpha = -np.log(0.6)/L
-        Itilde = I*(1-np.exp(-alpha*L))/(alpha*L)
-        Itilde *= 1/(1+Itilde/Isat)
-        return n2_0*Itilde
-    popt, pcov = curve_fit(fit_Isat, powers, Dn_center,
-                           p0=[Dn_center[0]/I, 1.0], maxfev=16000)
-    popt1, pcov1 = curve_fit(fit_Isat, powers, Dn_analytical,
-                             p0=[Dn_center[0]/I, 1.0], maxfev=16000)
-    print(popt)
-    ax1.plot(powers*1e3, np.abs(Dn_center))
-    ax1.plot(powers*1e3, np.abs(fit_Isat(powers, popt[0], popt[1])))
-    ax1.plot(powers*1e3, np.abs(fit_Isat(powers,
-                                         n2_murad[idx], I_sat_murad[idx])))
-    ax1.plot(powers*1e3, np.abs(Dn_analytical))
-    leg1 = "Fit : $n_{2}$ = "+"{:.2e}".format(popt[0])+" $m^{2}/W$, " +\
-        "$I_{sat}$ = "+f"{np.round(popt[1], decimals=2)} "+"$W/m^{2}$"
-    leg2 = "Data : $n_{2}$ = "+"{:.2e}".format(-n2_murad[idx])+" $m^{2}/W$, " +\
-        "$I_{sat}$ = "+f"{np.round(I_sat_murad[idx], decimals=2)} "+"$W/m^{2}$"
-    leg3 = "Analytical : $n_{2}$ = "+"{:.2e}".format(popt1[0])+" $m^{2}/W$, " +\
-        "$I_{sat}$ = "+f"{np.round(popt1[1], decimals=2)} "+"$W/m^{2}$"
-    ax1.legend(["Computed", leg1, leg2, leg3])
-    ax1.set_title("$\Delta n$ vs power, $w_{0}$ = " +
-                  f"{np.round(waists_murad[idx]*1e3, decimals=2)} mm")
-    fig.suptitle("$\Delta n$ vs power, $w_{0}$ = " +
-                 f"{np.round(waists_murad[idx]*1e3, decimals=2)} mm")
-    ax1.set_xlabel("Power in mW")
-    ax1.set_ylabel("$\Delta n$")
-    # ax1.set_yscale('log')
-    plt.show()
+        def fit_Isat(P, n2_0, Isat):
+            I = P/(np.pi*waists_murad[idx]**2)
+            alpha = -np.log(0.6)/L
+            Itilde = I*(1-np.exp(-alpha*L))/(alpha*L)
+            Itilde *= 1/(1+Itilde/Isat)
+            return n2_0*Itilde
+        popt, pcov = curve_fit(fit_Isat, powers, Dn_center,
+                               p0=[Dn_center[0]/I, 1.0], maxfev=16000)
+        popt1, pcov1 = curve_fit(fit_Isat, powers, Dn_analytical,
+                                 p0=[Dn_center[0]/I, 1.0], maxfev=16000)
+        print(popt)
+        # ax1.plot(powers*1e3, np.abs(Dn_center))
+        # ax1.plot(powers*1e3, np.abs(fit_Isat(powers, popt[0], popt[1])))
+        # ax1.plot(powers*1e3, np.abs(fit_Isat(powers,
+        #                                     n2_murad[idx], I_sat_murad[idx])))
+        # ax1.plot(powers*1e3, np.abs(Dn_analytical))
+        # leg1 = "Fit : $n_{2}$ = "+"{:.2e}".format(popt[0])+" $m^{2}/W$, " +\
+        #     "$I_{sat}$ = "+f"{np.round(popt[1], decimals=2)} "+"$W/m^{2}$"
+        # leg2 = "Data : $n_{2}$ = "+"{:.2e}".format(-n2_murad[idx])+" $m^{2}/W$, " +\
+        #     "$I_{sat}$ = "+f"{np.round(I_sat_murad[idx], decimals=2)} "+"$W/m^{2}$"
+        # leg3 = "Analytical : $n_{2}$ = "+"{:.2e}".format(popt1[0])+" $m^{2}/W$, " +\
+        #     "$I_{sat}$ = "+f"{np.round(popt1[1], decimals=2)} "+"$W/m^{2}$"
+        # ax1.legend(["Computed", leg1, leg2, leg3])
+        # ax1.set_title("$\Delta n$ vs power, $w_{0}$ = " +
+        #             f"{np.round(waists_murad[idx]*1e3, decimals=2)} mm")
+        # fig.suptitle("$\Delta n$ vs power, $w_{0}$ = " +
+        #             f"{np.round(waists_murad[idx]*1e3, decimals=2)} mm")
+        # ax1.set_xlabel("Power in mW")
+        # ax1.set_ylabel("$\Delta n$")
+        # # ax1.set_yscale('log')
+        # plt.show()
     # realizations run
     # reals = [1000, 2000, 5000, 10000, 50000, 100000]
     # n2_center = np.empty(len(reals), dtype=np.float64)
