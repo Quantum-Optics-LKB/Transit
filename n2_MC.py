@@ -8,7 +8,7 @@ import time
 # from numba import jit
 from functools import partial
 from multiprocessing import Pool
-
+from scipy.constants import Boltzmann
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
 import numpy as np
@@ -187,21 +187,20 @@ def main():
     # fig1.tight_layout()
     # plt.show()
     # Power run
-    indices = [0, 3, 4, 5, 6]
+    indices = range(10)
     for idx in indices:
         start_time = time.ctime()
-        # idx = 6
         fig, ax = plt.subplots(4, 5)
         fig1, ax1 = plt.subplots()
         Dn_P_murad = np.zeros((len(powers), N_grid, N_grid), dtype=np.float64)
         Dn_center = np.zeros(len(powers), dtype=np.float64)
         Dn_analytical = np.zeros(len(powers), dtype=np.float64)
-        solver1 = temporal_bloch(T, 1e-9, waists_murad[idx], detun, L, N_grid=N_grid,
+        solver1 = temporal_bloch(T, 1e-9*np.pi*waists_murad[idx], waists_murad[idx], detun, L, N_grid=N_grid,
                                  N_v=N_v, N_real=N_real, N_proc=N_proc)
         solver1.window = 10*waists_murad[idx]
-        vs = np.linspace(-1500, 1500, 5000)
-        pvs = np.sqrt(solver1.m87/(2*np.pi*cst.Boltzmann*solver1.T)) * \
-            np.exp(-solver1.m87*vs**2/(2*cst.Boltzmann*solver1.T))
+        Vs = np.linspace(v0, v1, N_v)
+        pvs = np.sqrt(2.0/np.pi)*((solver1.m87/(Boltzmann*T))**(3.0/2.0)) * \
+            Vs**2.0*np.exp(-solver1.m87*Vs**2.0/(2.0*Boltzmann*T))
         chi_analytical_low = solver1.chi_analytical(0)
         t0 = time.time()
         for counter_p, power in enumerate(powers):
@@ -214,7 +213,7 @@ def main():
                 np.log(0.6)/solver.L
             renorm1, counter_1 = solver1.do_V_span(v0, v1, N_v)
             chi_analytical_low = np.sum(
-                solver1.chi_analytical(vs)*pvs*np.abs(vs[1]-vs[0]))
+                solver1.chi_analytical(Vs)*pvs*np.abs(Vs[1]-Vs[0]))
             nlow = np.sqrt(1 + renorm1)
             nlow_a = np.sqrt(1 + chi_analytical_low)
             solver.window = solver1.window
@@ -223,7 +222,7 @@ def main():
                     f"Power {counter_p+1}/{len(powers)} ---- z {k+1}/{N_steps_z}")
                 renorm, counter = solver.do_V_span(v0, v1, N_v)
                 chi_analytical_high = np.sum(
-                    solver.chi_analytical(vs)*pvs*np.abs(vs[1]-vs[0]))
+                    solver.chi_analytical(Vs)*pvs*np.abs(Vs[1]-Vs[0]))
                 nhigh_a = np.sqrt(1 + chi_analytical_high)
                 nhigh = np.sqrt(1 + renorm)
                 Dn_a = np.real(nhigh_a - nlow_a)
@@ -357,7 +356,8 @@ def main():
     # plt.show()
     # Waist run with propagation
     # indices = range(10)
-    # indices = [0, 3, 4, 5, 6]
+    # start_time = time.ctime()
+    # # indices = [0, 3, 4, 5, 6]
     # waists_subset = waists_murad[indices]
     # powers_subset = power_in_murad[indices]
     # Dn_w_murad = np.zeros(
@@ -402,7 +402,7 @@ def main():
     #     ax[counter_w//5, counter_w % 5].set_title("$w_{0}$ = " +
     #                                               f"{np.round(waist*1e3, decimals=2)} mm")
     #     fig.colorbar(im, ax=ax[counter_w//5, counter_w % 5])
-    # # n2_center = np.load("results/n2_center_w_P_Thu Jan  6 14:13:10 2022.npy")
+    # n2_center = np.load("results/n2_center_w_P_Thu Jan  6 14:13:10 2022.npy")
     # alpha = -np.log(power_out_low_murad[counter_w] /
     #                 power_in_low_murad[counter_w])/L
     # Itilde = I*(1-np.exp(-alpha*L))/(alpha*L)
